@@ -15,6 +15,92 @@ MONTHS_BACK = 6
 # Configuration
 DATABASE_FILE = "importer.db"
 
+def get_date_input(date_type):
+    """Get date input from user with month, day, year"""
+    print(f"\n📅 Enter {date_type} date:")
+    
+    while True:
+        try:
+            year = int(input(f"  Year (e.g., 2024): ").strip())
+            if year < 2020 or year > 2025:
+                print("  ❌ Please enter a valid year between 2020 and 2025")
+                continue
+                
+            month = int(input(f"  Month (1-12): ").strip())
+            if month < 1 or month > 12:
+                print("  ❌ Please enter a valid month (1-12)")
+                continue
+                
+            day = int(input(f"  Day (1-31): ").strip())
+            if day < 1 or day > 31:
+                print("  ❌ Please enter a valid day (1-31)")
+                continue
+                
+            # Create and validate the date
+            date = datetime(year, month, day).date()
+            return date
+            
+        except ValueError as e:
+            print(f"  ❌ Invalid date: {e}. Please try again.")
+        except Exception as e:
+            print(f"  ❌ Error: {e}. Please try again.")
+
+
+def get_date_range():
+    """Get date range from user input"""
+    print("\n📅 DATE RANGE SELECTION")
+    print("=" * 30)
+    print("1. Use default (last 6 months, ending 1 week ago)")
+    print("2. Enter custom date range")
+    
+    while True:
+        choice = input("\nSelect option (1-2): ").strip()
+        
+        if choice == "1":
+            # Default option
+            end_date = datetime.now().date() - timedelta(days=7)
+            start_date = end_date - timedelta(days=MONTHS_BACK * 30)
+            break
+            
+        elif choice == "2":
+            # Custom date range
+            print("\n🗓️  Custom Date Range Entry")
+            start_date = get_date_input("START")
+            end_date = get_date_input("END")
+            
+            if start_date >= end_date:
+                print("❌ Start date must be before end date. Please try again.")
+                continue
+                
+            # Check if dates are too recent (API restrictions)
+            today = datetime.now().date()
+            if end_date > today - timedelta(days=7):
+                print("⚠️  Warning: End date is less than 7 days ago. Data may be incomplete.")
+                confirm = input("Continue anyway? (y/n): ").strip().lower()
+                if confirm != 'y':
+                    continue
+            
+            break
+            
+        else:
+            print("❌ Invalid choice. Please select 1 or 2.")
+    
+    # Show selected range
+    duration = (end_date - start_date).days
+    print(f"\n✅ Selected date range:")
+    print(f"   From: {start_date.strftime('%B %d, %Y')} ({start_date})")
+    print(f"   To: {end_date.strftime('%B %d, %Y')} ({end_date})")
+    print(f"   Duration: {duration} days ({duration/30.44:.1f} months)")
+    
+    # Confirm
+    confirm = input(f"\nProceed with this date range? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Operation cancelled.")
+        return None, None
+    
+    return start_date, end_date
+
+
 def create_summary_table():
     """Create summary table if not exists"""
     conn = sqlite3.connect(DATABASE_FILE)
@@ -102,11 +188,8 @@ def get_importers():
     conn.close()
     return importers
 
-def get_importer_records(importer_name):
+def get_importer_records(importer_name, start_date, end_date):
     """Get all records for a specific importer within date range"""
-    end_date = datetime.now().date() - timedelta(days=7)  # 1 week ago
-    start_date = end_date - timedelta(days=MONTHS_BACK * 30)  #
-    
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -126,7 +209,7 @@ def calculate_summary(importer_name, records):
     total_records = len(records)
     
     # Basic metrics
-    total_freight = round(sum(float(r[24] or 0) for r in records), 2)  # departure_freight_usd_value
+    total_freight = round(sum(float(r[11] or 0) for r in records), 2)  # departure_goods_usd_value
     avg_freight = round(total_freight / total_records if total_records > 0 else 0, 2)
     total_weight = round(sum(float(r[10] or 0) for r in records), 2)  # departure_gross_weight
     avg_weight = round(total_weight / total_records if total_records > 0 else 0, 2)
@@ -391,8 +474,16 @@ def main():
     
     print(f"Found {record_count} import records")
     
+    # Get date range from user
+    start_date, end_date = get_date_range()
+    if not start_date or not end_date:
+        return
+    
+    print(f"\n🔍 SUMMARIZATION CONFIGURATION")
+    print(f"Date range: {start_date} to {end_date}")
+    
     # Create summary table
-    print("Setting up summary table...")
+    print("\nSetting up summary table...")
     create_summary_table()
     
     # Clear existing summaries
@@ -410,7 +501,7 @@ def main():
         if i % 10 == 0:
             print(f"Processed {i}/{len(importers)} importers")
         
-        records = get_importer_records(importer)
+        records = get_importer_records(importer, start_date, end_date)
         if records:
             summary = calculate_summary(importer, records)
             if summary and insert_summary(summary):
@@ -461,7 +552,7 @@ def main():
         # Webhook URLs
         test_url = "http://68.183.85.45:5678/webhook-test/1538d58f-70e9-4879-84ee-4ac85b7a755c"
         prod_url = "http://68.183.85.45:5678/webhook/1538d58f-70e9-4879-84ee-4ac85b7a755c"
-        
+       
         # Get the summary data we just created
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
@@ -499,7 +590,7 @@ def main():
         # Send to test webhook
         print(f"📤 Sending to TEST webhook...")
         try:
-            response = requests.post(test_url, json=payload, headers=headers, timeout=30)
+            response = requests.get(test_url, json=payload, headers=headers, timeout=30)
             if response.status_code == 200:
                 print(f"  ✅ TEST webhook triggered successfully!")
             else:

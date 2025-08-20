@@ -14,10 +14,143 @@ from decimal import Decimal
 
 # Configuration
 DATABASE_FILE = "importer.db"
-API_KEY = ""
+API_KEY = "n8HPUtVG16Ea5mYi5jvlOYqFyObzTd1ZvXMTjU8s"
 API_URL = "https://bi-api.logcomex.io/api/v1/details"
 MONTHS_BACK = int(os.getenv("DEFAULT_MONTHS_BACK", "6"))
-IMPORTER_NAME = os.getenv("IMPORTER_NAME", "CISCO SYSTEMS DE MEXICO S DE RL DE CV")
+# IMPORTER_NAME = os.getenv("IMPORTER_NAME", "CISCO SYSTEMS DE MEXICO S DE RL DE CV")
+IMPORTER_NAME = os.getenv("IMPORTER_NAME", "DANFOSS INDUSTRIES SA DE CV")
+
+
+def get_date_input(date_type):
+    """Get date input from user with month, day, year"""
+    print(f"\n📅 Enter {date_type} date:")
+    
+    while True:
+        try:
+            year = int(input(f"  Year (e.g., 2024): ").strip())
+            if year < 2020 or year > 2025:
+                print("  ❌ Please enter a valid year between 2020 and 2025")
+                continue
+                
+            month = int(input(f"  Month (1-12): ").strip())
+            if month < 1 or month > 12:
+                print("  ❌ Please enter a valid month (1-12)")
+                continue
+                
+            day = int(input(f"  Day (1-31): ").strip())
+            if day < 1 or day > 31:
+                print("  ❌ Please enter a valid day (1-31)")
+                continue
+                
+            # Create and validate the date
+            date = datetime(year, month, day).date()
+            return date
+            
+        except ValueError as e:
+            print(f"  ❌ Invalid date: {e}. Please try again.")
+        except Exception as e:
+            print(f"  ❌ Error: {e}. Please try again.")
+
+
+def get_date_range():
+    """Get date range from user input"""
+    print("\n📅 DATE RANGE SELECTION")
+    print("=" * 30)
+    print("1. Use default (last 6 months, ending 1 week ago)")
+    print("2. Enter custom date range")
+    
+    while True:
+        choice = input("\nSelect option (1-2): ").strip()
+        
+        if choice == "1":
+            # Default option
+            end_date = datetime.now().date() - timedelta(days=7)
+            start_date = end_date - timedelta(days=MONTHS_BACK * 30)
+            break
+            
+        elif choice == "2":
+            # Custom date range
+            print("\n🗓️  Custom Date Range Entry")
+            start_date = get_date_input("START")
+            end_date = get_date_input("END")
+            
+            if start_date >= end_date:
+                print("❌ Start date must be before end date. Please try again.")
+                continue
+                
+            # Check if dates are too recent (API restrictions)
+            today = datetime.now().date()
+            if end_date > today - timedelta(days=7):
+                print("⚠️  Warning: End date is less than 7 days ago. API may have restrictions.")
+                confirm = input("Continue anyway? (y/n): ").strip().lower()
+                if confirm != 'y':
+                    continue
+            
+            break
+            
+        else:
+            print("❌ Invalid choice. Please select 1 or 2.")
+    
+    # Show selected range
+    duration = (end_date - start_date).days
+    print(f"\n✅ Selected date range:")
+    print(f"   From: {start_date.strftime('%B %d, %Y')} ({start_date})")
+    print(f"   To: {end_date.strftime('%B %d, %Y')} ({end_date})")
+    print(f"   Duration: {duration} days ({duration/30.44:.1f} months)")
+    
+    # Confirm
+    confirm = input(f"\nProceed with this date range? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Operation cancelled.")
+        return None, None
+    
+    return start_date, end_date
+
+
+def get_importer_name():
+    """Get importer name from user input"""
+    print("\n🏢 IMPORTER NAME SELECTION")
+    print("=" * 30)
+    print("1. Use default (DANFOSS INDUSTRIES SA DE CV)")
+    print("2. Use Cisco (CISCO SYSTEMS DE MEXICO S DE RL DE CV)")
+    print("3. Enter custom importer name")
+    
+    default_options = {
+        "1": "DANFOSS INDUSTRIES SA DE CV",
+        "2": "CISCO SYSTEMS DE MEXICO S DE RL DE CV"
+    }
+    
+    while True:
+        choice = input("\nSelect option (1-3): ").strip()
+        
+        if choice in ["1", "2"]:
+            importer_name = default_options[choice]
+            break
+            
+        elif choice == "3":
+            # Custom importer name
+            print("\n📝 Enter Custom Importer Name")
+            while True:
+                importer_name = input("Importer name (exact match): ").strip()
+                if importer_name:
+                    break
+                else:
+                    print("❌ Please enter a valid importer name.")
+            break
+            
+        else:
+            print("❌ Invalid choice. Please select 1, 2, or 3.")
+    
+    print(f"\n✅ Selected importer: {importer_name}")
+    
+    # Confirm
+    confirm = input(f"\nProceed with this importer? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Operation cancelled.")
+        return None
+    
+    return importer_name
+
 
 def create_database():
     """Create SQLite database and tables"""
@@ -68,7 +201,7 @@ def clear_existing_data():
     conn.commit()
     conn.close()
 
-def fetch_data_from_api(start_date, end_date):
+def fetch_data_from_api(start_date, end_date, importer_name):
     """Fetch data from Logcomex API"""
     headers = {
         'Content-Type': 'application/json',
@@ -84,7 +217,7 @@ def fetch_data_from_api(start_date, end_date):
             },
             {
                 "field": "importer_name",
-                "value": IMPORTER_NAME
+                "value": importer_name
             }
         ],
         "page": 1,
@@ -198,21 +331,59 @@ def main():
     print("Setting up database...")
     create_database()
     
-    # Calculate date range (use past dates to avoid plan restrictions)
-    end_date = datetime.now().date() - timedelta(days=7)  # 1 week ago
-    start_date = end_date - timedelta(days=MONTHS_BACK * 30)  # N months ago
+    # Check existing data
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM import_records")
+    existing_count = cursor.fetchone()[0]
+    conn.close()
     
-    print(f"Fetching data from {start_date} to {end_date}")
-    print(f"Time range: Last {MONTHS_BACK} months")
-    print(f"Importer filter: {IMPORTER_NAME}")
+    if existing_count > 0:
+        print(f"Found {existing_count} existing records in database")
+        print("\n🗂️  DATABASE OPTIONS")
+        print("=" * 20)
+        print("1. Keep existing data and add new records")
+        print("2. Clear database and start fresh")
+        
+        while True:
+            choice = input("\nSelect option (1-2): ").strip()
+            if choice == "1":
+                clear_db = False
+                break
+            elif choice == "2":
+                clear_db = True
+                break
+            else:
+                print("❌ Invalid choice. Please select 1 or 2.")
+    else:
+        print("No existing records found")
+        clear_db = False
     
-    # Clear existing data
-    print("Clearing existing data...")
-    clear_existing_data()
+    # Get date range from user
+    start_date, end_date = get_date_range()
+    if not start_date or not end_date:
+        return
+    
+    # Get importer name from user
+    importer_name = get_importer_name()
+    if not importer_name:
+        return
+    
+    print(f"\n🔍 FETCH CONFIGURATION")
+    print(f"Date range: {start_date} to {end_date}")
+    print(f"Importer: {importer_name}")
+    print(f"Database action: {'Clear and refresh' if clear_db else 'Append new records'}")
+    
+    # Clear existing data if requested
+    if clear_db:
+        print("\nClearing existing data...")
+        clear_existing_data()
+    else:
+        print(f"\nKeeping existing {existing_count} records...")
     
     # Fetch data from API
     print("Fetching data from Logcomex API...")
-    records = fetch_data_from_api(start_date, end_date)
+    records = fetch_data_from_api(start_date, end_date, importer_name)
     
     if not records:
         print("No records fetched from API")
@@ -224,14 +395,19 @@ def main():
     print("Inserting records into database...")
     inserted = insert_records(records)
     
+    # Get final count
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM import_records")
+    final_count = cursor.fetchone()[0]
+    
     print(f"\nRESULTS:")
     print(f"  Records fetched: {len(records)}")
     print(f"  Records inserted: {inserted}")
+    print(f"  Total records in database: {final_count}")
     print(f"  Database: {DATABASE_FILE}")
     
     # Show sample data
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
     cursor.execute("SELECT importer_name, departure_goods_usd_value FROM import_records LIMIT 3")
     samples = cursor.fetchall()
     
