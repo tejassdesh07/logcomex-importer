@@ -126,10 +126,10 @@ def calculate_summary(importer_name, records):
     total_records = len(records)
     
     # Basic metrics
-    total_freight = sum(float(r[24] or 0) for r in records)  # departure_freight_usd_value
-    avg_freight = total_freight / total_records if total_records > 0 else 0
-    total_weight = sum(float(r[10] or 0) for r in records)  # departure_gross_weight
-    avg_weight = total_weight / total_records if total_records > 0 else 0
+    total_freight = round(sum(float(r[24] or 0) for r in records), 2)  # departure_freight_usd_value
+    avg_freight = round(total_freight / total_records if total_records > 0 else 0, 2)
+    total_weight = round(sum(float(r[10] or 0) for r in records), 2)  # departure_gross_weight
+    avg_weight = round(total_weight / total_records if total_records > 0 else 0, 2)
     
     # Extract RFC from importer_id
     rfc = records[0][19] if records[0][19] else ""  # importer_id
@@ -142,11 +142,11 @@ def calculate_summary(importer_name, records):
     # Regime percentages
     regimes = [r[16] or "" for r in records]  # customs_regime_id
     regime_counts = Counter(regimes)
-    pct_regime_A1 = (regime_counts.get("A1", 0) / total_records) * 100
-    pct_regime_F4 = (regime_counts.get("F4", 0) / total_records) * 100
-    pct_regime_IN = (regime_counts.get("IN", 0) / total_records) * 100
-    pct_regime_A3 = (regime_counts.get("A3", 0) / total_records) * 100
-    pct_regime_AF = (regime_counts.get("AF", 0) / total_records) * 100
+    pct_regime_A1 = round((regime_counts.get("A1", 0) / total_records) * 100, 2)
+    pct_regime_F4 = round((regime_counts.get("F4", 0) / total_records) * 100, 2)
+    pct_regime_IN = round((regime_counts.get("IN", 0) / total_records) * 100, 2)
+    pct_regime_A3 = round((regime_counts.get("A3", 0) / total_records) * 100, 2)
+    pct_regime_AF = round((regime_counts.get("AF", 0) / total_records) * 100, 2)
     
     # Transport percentages
     transports = [r[8] or "" for r in records]  # entry_exit_transport
@@ -163,10 +163,10 @@ def calculate_summary(importer_name, records):
         else:
             transport_counts["NOT_DECLARED"] += 1
     
-    pct_transport_carretero = (transport_counts["CARRETERO"] / total_records) * 100
-    pct_transport_aereo = (transport_counts["AEREO"] / total_records) * 100
-    pct_transport_maritimo = (transport_counts["MARITIMO"] / total_records) * 100
-    pct_transport_not_declared = (transport_counts["NOT_DECLARED"] / total_records) * 100
+    pct_transport_carretero = round((transport_counts["CARRETERO"] / total_records) * 100, 2)
+    pct_transport_aereo = round((transport_counts["AEREO"] / total_records) * 100, 2)
+    pct_transport_maritimo = round((transport_counts["MARITIMO"] / total_records) * 100, 2)
+    pct_transport_not_declared = round((transport_counts["NOT_DECLARED"] / total_records) * 100, 2)
     
     # Port percentages
     port_counts = {"NUEVO_LAREDO": 0, "COLOMBIA_NL": 0, "MONTERREY_AIRPORT": 0, "MANZANILLO": 0, "PUEBLA": 0, "OTHERS": 0}
@@ -189,12 +189,12 @@ def calculate_summary(importer_name, records):
         else:
             port_counts["OTHERS"] += 1
     
-    pct_port_NUEVO_LAREDO = (port_counts["NUEVO_LAREDO"] / total_records) * 100
-    pct_port_COLOMBIA_NL = (port_counts["COLOMBIA_NL"] / total_records) * 100
-    pct_port_MONTERREY_AIRPORT = (port_counts["MONTERREY_AIRPORT"] / total_records) * 100
-    pct_port_MANZANILLO = (port_counts["MANZANILLO"] / total_records) * 100
-    pct_port_PUEBLA = (port_counts["PUEBLA"] / total_records) * 100
-    pct_port_OTHERS = (port_counts["OTHERS"] / total_records) * 100
+    pct_port_NUEVO_LAREDO = round((port_counts["NUEVO_LAREDO"] / total_records) * 100, 2)
+    pct_port_COLOMBIA_NL = round((port_counts["COLOMBIA_NL"] / total_records) * 100, 2)
+    pct_port_MONTERREY_AIRPORT = round((port_counts["MONTERREY_AIRPORT"] / total_records) * 100, 2)
+    pct_port_MANZANILLO = round((port_counts["MANZANILLO"] / total_records) * 100, 2)
+    pct_port_PUEBLA = round((port_counts["PUEBLA"] / total_records) * 100, 2)
+    pct_port_OTHERS = round((port_counts["OTHERS"] / total_records) * 100, 2)
     
     # HS Code percentages
     hs_counts = {"84": 0, "85": 0, "90": 0, "73": 0, "74": 0, "OTROS": 0}
@@ -210,12 +210,12 @@ def calculate_summary(importer_name, records):
         else:
             hs_counts["OTROS"] += 1
     
-    pct_hs_84 = (hs_counts["84"] / total_records) * 100
-    pct_hs_85 = (hs_counts["85"] / total_records) * 100
-    pct_hs_90 = (hs_counts["90"] / total_records) * 100
-    pct_hs_73 = (hs_counts["73"] / total_records) * 100
-    pct_hs_74 = (hs_counts["74"] / total_records) * 100
-    pct_hs_OTROS = (hs_counts["OTROS"] / total_records) * 100
+    pct_hs_84 = round((hs_counts["84"] / total_records) * 100, 2)
+    pct_hs_85 = round((hs_counts["85"] / total_records) * 100, 2)
+    pct_hs_90 = round((hs_counts["90"] / total_records) * 100, 2)
+    pct_hs_73 = round((hs_counts["73"] / total_records) * 100, 2)
+    pct_hs_74 = round((hs_counts["74"] / total_records) * 100, 2)
+    pct_hs_OTROS = round((hs_counts["OTROS"] / total_records) * 100, 2)
     
     # Origin country percentages
     countries = [r[6] or "" for r in records]  # origin_destination_country
@@ -240,29 +240,29 @@ def calculate_summary(importer_name, records):
         else:
             country_counts["OTROS"] += 1
     
-    pct_origin_TAIWAN = (country_counts["TAIWAN"] / total_records) * 100
-    pct_origin_VIETNAM = (country_counts["VIETNAM"] / total_records) * 100
-    pct_origin_CHINA = (country_counts["CHINA"] / total_records) * 100
-    pct_origin_USA = (country_counts["USA"] / total_records) * 100
-    pct_origin_GERMANY = (country_counts["GERMANY"] / total_records) * 100
-    pct_origin_DENMARK = (country_counts["DENMARK"] / total_records) * 100
-    pct_origin_FRANCE = (country_counts["FRANCE"] / total_records) * 100
-    pct_origin_OTROS = (country_counts["OTROS"] / total_records) * 100
+    pct_origin_TAIWAN = round((country_counts["TAIWAN"] / total_records) * 100, 2)
+    pct_origin_VIETNAM = round((country_counts["VIETNAM"] / total_records) * 100, 2)
+    pct_origin_CHINA = round((country_counts["CHINA"] / total_records) * 100, 2)
+    pct_origin_USA = round((country_counts["USA"] / total_records) * 100, 2)
+    pct_origin_GERMANY = round((country_counts["GERMANY"] / total_records) * 100, 2)
+    pct_origin_DENMARK = round((country_counts["DENMARK"] / total_records) * 100, 2)
+    pct_origin_FRANCE = round((country_counts["FRANCE"] / total_records) * 100, 2)
+    pct_origin_OTROS = round((country_counts["OTROS"] / total_records) * 100, 2)
     
     # Incoterm percentages
     incoterms = [r[20] or "" for r in records]  # incoterm
     incoterm_counts = Counter(incoterms)
-    pct_incoterm_DAP = (incoterm_counts.get("DAP", 0) / total_records) * 100
-    pct_incoterm_EXW = (incoterm_counts.get("EXW", 0) / total_records) * 100
-    pct_incoterm_FCA = (incoterm_counts.get("FCA", 0) / total_records) * 100
-    pct_incoterm_OTROS = ((total_records - incoterm_counts.get("DAP", 0) - incoterm_counts.get("EXW", 0) - incoterm_counts.get("FCA", 0)) / total_records) * 100
+    pct_incoterm_DAP = round((incoterm_counts.get("DAP", 0) / total_records) * 100, 2)
+    pct_incoterm_EXW = round((incoterm_counts.get("EXW", 0) / total_records) * 100, 2)
+    pct_incoterm_FCA = round((incoterm_counts.get("FCA", 0) / total_records) * 100, 2)
+    pct_incoterm_OTROS = round(((total_records - incoterm_counts.get("DAP", 0) - incoterm_counts.get("EXW", 0) - incoterm_counts.get("FCA", 0)) / total_records) * 100, 2)
     
     # Custom brokers
     brokers = [r[14] or "" for r in records if r[14]]  # custom_broker_id
     broker_counts = Counter(brokers)
     num_brokers = len(broker_counts)
     top_broker = broker_counts.most_common(1)[0] if broker_counts else ("", 0)
-    pct_top_broker = (top_broker[1] / total_records) * 100 if top_broker[1] > 0 else 0
+    pct_top_broker = round((top_broker[1] / total_records) * 100, 2) if top_broker[1] > 0 else 0
     
     # Business intelligence flags
     is_origin_usa = 1 if pct_origin_USA > 50 else 0
