@@ -29,7 +29,22 @@ Two simple, self-contained Python scripts for importing and summarizing Logcomex
 
 ## Configuration
 
-Set environment variable `DEFAULT_MONTHS_BACK` to control the time range (default: 12 months).
+### Configure import_records.py
+Edit the configuration section in `import_records.py` to customize your settings:
+
+```python
+# Configuration section in import_records.py (lines 16-20)
+DATABASE_FILE = "importer.db"
+API_KEY = "your-api-key-here"
+API_URL = "https://bi-api.logcomex.io/api/v1/details"
+MONTHS_BACK = 6
+IMPORTER_NAME = "your-importer-name-here"
+```
+
+**Important**: 
+- Update the `API_KEY` with your actual Logcomex API key
+- Change `MONTHS_BACK` to control time range (default: 6 months)
+- Modify `IMPORTER_NAME` to filter specific importers
 
 ## Features
 
