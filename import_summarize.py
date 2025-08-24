@@ -6,6 +6,7 @@ Self-contained - all business logic included
 
 import os
 import sqlite3
+import csv
 from datetime import datetime, timedelta
 from collections import Counter
 
@@ -50,16 +51,16 @@ def get_date_range():
     """Get date range from user input"""
     print("\n📅 DATE RANGE SELECTION")
     print("=" * 30)
-    print("1. Use default (last 6 months, ending 1 week ago)")
+    print("1. Use default (6 months starting 3 months ago)")
     print("2. Enter custom date range")
     
     while True:
         choice = input("\nSelect option (1-2): ").strip()
         
         if choice == "1":
-            # Default option
-            end_date = datetime.now().date() - timedelta(days=7)
-            start_date = end_date - timedelta(days=MONTHS_BACK * 30)
+            # Default option: 6 months starting 3 months ago
+            end_date = datetime.now().date() - timedelta(days=90)  # 3 months ago
+            start_date = end_date - timedelta(days=MONTHS_BACK * 30)  # 6 months before that
             break
             
         elif choice == "2":
@@ -457,22 +458,122 @@ def insert_summary(summary):
     finally:
         conn.close()
 
+def export_to_csv():
+    """Export import_summaries table to CSV"""
+    print("\n📊 CSV EXPORT OPTIONS")
+    print("=" * 20)
+    print("1. Export all summaries")
+    print("2. Skip CSV export")
+    
+    while True:
+        choice = input("\nSelect option (1-2): ").strip()
+        if choice == "1":
+            break
+        elif choice == "2":
+            return
+        else:
+            print("❌ Invalid choice. Please select 1 or 2.")
+    
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        
+        # Get all summaries
+        cursor.execute("SELECT * FROM import_summaries")
+        summaries = cursor.fetchall()
+        
+        if not summaries:
+            print("No summaries to export")
+            conn.close()
+            return
+        
+        # Get column names
+        cursor.execute("PRAGMA table_info(import_summaries)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"import_summaries_{timestamp}.csv"
+        
+        # Export to CSV
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            
+            # Write header
+            writer.writerow(columns)
+            
+            # Write data
+            writer.writerows(summaries)
+        
+        conn.close()
+        print(f"✅ Exported {len(summaries)} summaries to: {filename}")
+        
+    except Exception as e:
+        print(f"❌ Error exporting to CSV: {e}")
+
 def main():
     print("LOGCOMEX IMPORT SUMMARIZER")
     print("=" * 40)
+    
+    # Ask about webhook triggering first
+    print("\n🚀 WEBHOOK TRIGGER OPTIONS")
+    print("=" * 25)
+    print("1. Trigger webhook after summarization")
+    print("2. Skip webhook trigger")
+    
+    while True:
+        webhook_choice = input("\nSelect option (1-2): ").strip()
+        if webhook_choice == "1":
+            trigger_webhook = True
+            break
+        elif webhook_choice == "2":
+            trigger_webhook = False
+            break
+        else:
+            print("❌ Invalid choice. Please select 1 or 2.")
     
     # Check if data exists
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM import_records")
     record_count = cursor.fetchone()[0]
-    conn.close()
     
     if record_count == 0:
         print("No import records found. Run import_records.py first.")
+        conn.close()
         return
     
     print(f"Found {record_count} import records")
+    
+    # Create summary table
+    print("Setting up summary table...")
+    create_summary_table()
+    
+    # Check existing summaries
+    cursor.execute("SELECT COUNT(*) FROM import_summaries")
+    existing_summaries = cursor.fetchone()[0]
+    conn.close()
+    
+    if existing_summaries > 0:
+        print(f"Found {existing_summaries} existing summaries in database")
+        print("\n📊 SUMMARY DATABASE OPTIONS")
+        print("=" * 30)
+        print("1. Keep existing summaries and add new ones")
+        print("2. Clear summaries and regenerate all")
+        
+        while True:
+            choice = input("\nSelect option (1-2): ").strip()
+            if choice == "1":
+                clear_summaries_flag = False
+                break
+            elif choice == "2":
+                clear_summaries_flag = True
+                break
+            else:
+                print("❌ Invalid choice. Please select 1 or 2.")
+    else:
+        print("No existing summaries found")
+        clear_summaries_flag = False
     
     # Get date range from user
     start_date, end_date = get_date_range()
@@ -481,14 +582,14 @@ def main():
     
     print(f"\n🔍 SUMMARIZATION CONFIGURATION")
     print(f"Date range: {start_date} to {end_date}")
+    print(f"Summary action: {'Clear and regenerate' if clear_summaries_flag else 'Keep existing and add new'}")
     
-    # Create summary table
-    print("\nSetting up summary table...")
-    create_summary_table()
-    
-    # Clear existing summaries
-    print("Clearing existing summaries...")
-    clear_summaries()
+    # Clear existing summaries if requested
+    if clear_summaries_flag:
+        print("\nClearing existing summaries...")
+        clear_summaries()
+    else:
+        print(f"\nKeeping existing {existing_summaries} summaries...")
     
     # Get importers
     importers = get_importers()
@@ -507,9 +608,16 @@ def main():
             if summary and insert_summary(summary):
                 summaries_created += 1
     
+    # Get final count
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM import_summaries")
+    final_summaries = cursor.fetchone()[0]
+    
     print(f"\nRESULTS:")
     print(f"  Importers processed: {len(importers)}")
     print(f"  Summaries created: {summaries_created}")
+    print(f"  Total summaries in database: {final_summaries}")
     
     # Show statistics
     conn = sqlite3.connect(DATABASE_FILE)
@@ -541,79 +649,87 @@ def main():
     conn.close()
     print(f"\nSummarization completed successfully!")
     
-    # Auto-trigger webhook after summary creation
-    print(f"\n🚀 AUTO-TRIGGERING WEBHOOK...")
-    try:
-        # Import webhook sender directly
-        import requests
-        import json
-        from datetime import datetime
-        
-        # Webhook URLs
-        test_url = "http://68.183.85.45:5678/webhook-test/1538d58f-70e9-4879-84ee-4ac85b7a755c"
-        prod_url = "http://68.183.85.45:5678/webhook/1538d58f-70e9-4879-84ee-4ac85b7a755c"
-       
-        # Get the summary data we just created
-        conn = sqlite3.connect(DATABASE_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM import_summaries")
-        summaries = cursor.fetchall()
-        
-        # Get column names
-        cursor.execute("PRAGMA table_info(import_summaries)")
-        columns = [row[1] for row in cursor.fetchall()]
-        
-        # Convert to list of dictionaries
-        summary_data = []
-        for summary in summaries:
-            summary_dict = {}
-            for i, col in enumerate(columns):
-                summary_dict[col] = summary[i]
-            summary_data.append(summary_dict)
-        
-        conn.close()
-        
-        # Prepare payload
-        payload = {
-            "timestamp": datetime.now().isoformat(),
-            "source": "logcomex_importer",
-            "trigger": "summary_created",
-            "summary_count": len(summary_data),
-            "data": summary_data
-        }
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Logcomex-Importer/1.0'
-        }
-        
-        # Send to test webhook
-        print(f"📤 Sending to TEST webhook...")
+    # Offer CSV export
+    export_to_csv()
+    
+    # Trigger webhook if requested
+    if trigger_webhook:
+        # Auto-trigger webhook after summary creation
+        print(f"\n🚀 AUTO-TRIGGERING WEBHOOK...")
         try:
-            response = requests.get(test_url, json=payload, headers=headers, timeout=30)
-            if response.status_code == 200:
-                print(f"  ✅ TEST webhook triggered successfully!")
-            else:
-                print(f"  ❌ TEST webhook failed: {response.status_code}")
+            # Import webhook sender directly
+            import requests
+            import json
+            from datetime import datetime
+            
+            # Webhook URLs
+            test_url = "http://68.183.85.45:5678/webhook-test/1538d58f-70e9-4879-84ee-4ac85b7a755c"
+            prod_url = "http://68.183.85.45:5678/webhook/1538d58f-70e9-4879-84ee-4ac85b7a755c"
+           
+            # Get the summary data we just created
+            conn = sqlite3.connect(DATABASE_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM import_summaries")
+            summaries = cursor.fetchall()
+            
+            # Get column names
+            cursor.execute("PRAGMA table_info(import_summaries)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            # Convert to list of dictionaries
+            summary_data = []
+            for summary in summaries:
+                summary_dict = {}
+                for i, col in enumerate(columns):
+                    summary_dict[col] = summary[i]
+                summary_data.append(summary_dict)
+            
+            conn.close()
+            
+            # Prepare payload
+            payload = {
+                "timestamp": datetime.now().isoformat(),
+                "source": "logcomex_importer",
+                "trigger": "summary_created",
+                "summary_count": len(summary_data),
+                "data": summary_data
+            }
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Logcomex-Importer/1.0'
+            }
+            
+            # Send to test webhook
+            print(f"📤 Sending to TEST webhook...")
+            try:
+                response = requests.get(test_url, json=payload, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    print(f"  ✅ TEST webhook triggered successfully!")
+                else:
+                    print(f"  ❌ TEST webhook failed: {response.status_code}")
+            except Exception as e:
+                print(f"  ❌ TEST webhook error: {e}")
+            
+            # Send to production webhook
+            print(f"📤 Sending to PRODUCTION webhook...")
+            try:
+                response = requests.post(prod_url, json=payload, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    print(f"  ✅ PRODUCTION webhook triggered successfully!")
+                else:
+                    print(f"  ❌ PRODUCTION webhook failed: {response.status_code}")
+            except Exception as e:
+                print(f"  ❌ PRODUCTION webhook error: {e}")
+            
+            print(f"🎉 Webhook auto-trigger completed!")
+            
         except Exception as e:
-            print(f"  ❌ TEST webhook error: {e}")
-        
-        # Send to production webhook
-        print(f"📤 Sending to PRODUCTION webhook...")
-        try:
-            response = requests.post(prod_url, json=payload, headers=headers, timeout=30)
-            if response.status_code == 200:
-                print(f"  ✅ PRODUCTION webhook triggered successfully!")
-            else:
-                print(f"  ❌ PRODUCTION webhook failed: {response.status_code}")
-        except Exception as e:
-            print(f"  ❌ PRODUCTION webhook error: {e}")
-        
-        print(f"🎉 Webhook auto-trigger completed!")
-        
-    except Exception as e:
-        print(f"⚠️  Webhook auto-trigger failed: {e}")
-        print(f"💡 Summary was created successfully, but webhook trigger failed")
+            print(f"⚠️  Webhook auto-trigger failed: {e}")
+            print(f"💡 Summary was created successfully, but webhook trigger failed")
+    else:
+        print(f"\n⏭️  Webhook trigger skipped as requested.")
+
 
 if __name__ == "__main__":
     main() 

@@ -9,6 +9,7 @@ import sqlite3
 import requests
 import json
 import time
+import csv
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -56,16 +57,16 @@ def get_date_range():
     """Get date range from user input"""
     print("\n📅 DATE RANGE SELECTION")
     print("=" * 30)
-    print("1. Use default (last 6 months, ending 1 week ago)")
+    print("1. Use default (6 months starting 3 months ago)")
     print("2. Enter custom date range")
     
     while True:
         choice = input("\nSelect option (1-2): ").strip()
         
         if choice == "1":
-            # Default option
-            end_date = datetime.now().date() - timedelta(days=7)
-            start_date = end_date - timedelta(days=MONTHS_BACK * 30)
+            # Default option: 6 months starting 3 months ago
+            end_date = datetime.now().date() - timedelta(days=90)  # 3 months ago
+            start_date = end_date - timedelta(days=MONTHS_BACK * 30)  # 6 months before that
             break
             
         elif choice == "2":
@@ -150,6 +151,60 @@ def get_importer_name():
         return None
     
     return importer_name
+
+
+def export_to_csv():
+    """Export import_records table to CSV"""
+    print("\n📊 CSV EXPORT OPTIONS")
+    print("=" * 20)
+    print("1. Export all records")
+    print("2. Skip CSV export")
+    
+    while True:
+        choice = input("\nSelect option (1-2): ").strip()
+        if choice == "1":
+            break
+        elif choice == "2":
+            return
+        else:
+            print("❌ Invalid choice. Please select 1 or 2.")
+    
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        
+        # Get all records
+        cursor.execute("SELECT * FROM import_records")
+        records = cursor.fetchall()
+        
+        if not records:
+            print("No records to export")
+            conn.close()
+            return
+        
+        # Get column names
+        cursor.execute("PRAGMA table_info(import_records)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"import_records_{timestamp}.csv"
+        
+        # Export to CSV
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            
+            # Write header
+            writer.writerow(columns)
+            
+            # Write data
+            writer.writerows(records)
+        
+        conn.close()
+        print(f"✅ Exported {len(records)} records to: {filename}")
+        
+    except Exception as e:
+        print(f"❌ Error exporting to CSV: {e}")
 
 
 def create_database():
@@ -418,6 +473,10 @@ def main():
     
     conn.close()
     print(f"\nImport completed successfully!")
+    
+    # Offer CSV export
+    export_to_csv()
+
 
 if __name__ == "__main__":
     main() 
