@@ -1,42 +1,20 @@
 version: '3.8'
 
 services:
-  # MySQL Database
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: logcomex
-      MYSQL_USER: sarvesh
-      MYSQL_PASSWORD: Saved6-Hydrogen-Smirk-Paltry-Trimmer
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data_dev:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 10
-
   # Logcomex Importer API (Development)
   api:
     build: .
     ports:
       - "8000:8000"
     environment:
-      - DB_HOST=mysql
+      - DB_HOST=your-rds-endpoint.region.rds.amazonaws.com
       - DB_PORT=3306
       - DB_NAME=logcomex
       - DB_USER=sarvesh
-      - DB_PASSWORD=Saved6-Hydrogen-Smirk-Paltry-Trimmer
+      - DB_PASSWORD=your-rds-password
       - API_KEY=n8HPUtVG16Ea5mYi5jvlOYqFyObzTd1ZvXMTjU8s
     volumes:
       - .:/app
       - ./exports:/app/exports
-    depends_on:
-      mysql:
-        condition: service_healthy
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-
-volumes:
-  mysql_data_dev:
+    restart: unless-stopped
