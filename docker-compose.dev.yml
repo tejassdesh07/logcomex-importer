@@ -7,11 +7,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DB_HOST=your-rds-endpoint.region.rds.amazonaws.com
+      - DB_HOST=ritstest.cnfwdrtgyxew.us-west-2.rds.amazonaws.com
       - DB_PORT=3306
       - DB_NAME=logcomex
       - DB_USER=sarvesh
-      - DB_PASSWORD=your-rds-password
+      - DB_PASSWORD=Saved6-Hydrogen-Smirk-Paltry-Trimmer
       - API_KEY=n8HPUtVG16Ea5mYi5jvlOYqFyObzTd1ZvXMTjU8s
     volumes:
       - .:/app

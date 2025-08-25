@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 import uvicorn
 from concurrent.futures import ThreadPoolExecutor
 import logging
+import re
 
 # Configure logging for better debugging
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +49,49 @@ db_pool = None
 async_db_pool = None
 thread_pool = ThreadPoolExecutor(max_workers=4)
 
+def calculate_date_range(since: str) -> tuple[str, str]:
+    """
+    Calculate start and end dates based on 'since' parameter.
+    
+    Logic:
+    - For "Last X Months": 
+      - End date: X months before today's date
+      - Start date: X months before the end date
+    
+    Args:
+        since: String like "Last 3 Months", "Last 6 Months", etc.
+        
+    Returns:
+        tuple: (start_date, end_date) in YYYY-MM-DD format
+        
+    Examples:
+        - "Last 3 Months" on 2025-08-25:
+          - end_date: 2025-05-25 (3 months before today)
+          - start_date: 2025-02-25 (3 months before end date)
+    """
+    today = datetime.now()
+    
+    # Extract number of months from the since string
+    match = re.search(r'Last (\d+) Months?', since, re.IGNORECASE)
+    if not match:
+        raise ValueError(f"Invalid 'since' format: {since}. Expected format: 'Last X Months'")
+    
+    months = int(match.group(1))
+    
+    # Calculate end date (X months before today)
+    end_date = today - timedelta(days=3 * 30)  # Approximate month calculation
+    
+    # Calculate start date (X months before end date)
+    start_date = end_date - timedelta(days=months * 30)
+    
+    # Format dates as YYYY-MM-DD
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
+    
+    logger.info(f"Date calculation for '{since}': {start_date_str} to {end_date_str}")
+    
+    return start_date_str, end_date_str
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Logcomex Importer API",
@@ -57,8 +101,7 @@ app = FastAPI(
 
 # Pydantic models for request/response
 class ImportRequest(BaseModel):
-    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
-    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
+    since: str = Field(..., description="Time period like 'Last 3 Months', 'Last 6 Months', etc.")
     importer_name: str = Field(..., description="Importer name to search for")
     clear_existing: bool = Field(False, description="Whether to clear existing records before import")
     run_summarize: bool = Field(True, description="Whether to run summarization after import")
@@ -71,11 +114,11 @@ class ImportResponse(BaseModel):
     total_records: int
     summaries_created: Optional[int] = None
     total_summaries: Optional[int] = None
+    summary_data: Optional[Dict] = None
     execution_time: float
 
 class SummaryRequest(BaseModel):
-    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
-    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
+    since: str = Field(..., description="Time period like 'Last 3 Months', 'Last 6 Months', etc.")
     clear_existing: bool = Field(False, description="Whether to clear existing summaries before generation")
 
 class SummaryResponse(BaseModel):
@@ -265,6 +308,32 @@ def clear_existing_data():
         loop.run_until_complete(clear_existing_data_async())
     finally:
         loop.close()
+
+async def delete_importer_records_async(importer_name: str):
+    """Delete all existing records for a specific importer"""
+    try:
+        result = await execute_query_async(
+            "DELETE FROM import_records WHERE importer_name = %s",
+            (importer_name,)
+        )
+        logger.info(f"Deleted existing records for importer: {importer_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting records for importer {importer_name}: {e}")
+        raise
+
+async def delete_importer_summary_async(importer_name: str):
+    """Delete existing summary for a specific importer"""
+    try:
+        result = await execute_query_async(
+            "DELETE FROM import_summaries WHERE importer_name = %s",
+            (importer_name,)
+        )
+        logger.info(f"Deleted existing summary for importer: {importer_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting summary for importer {importer_name}: {e}")
+        raise
 
 async def clear_summaries_async():
     """Clear existing summaries asynchronously"""
@@ -761,12 +830,11 @@ def insert_summary(summary: Dict) -> bool:
         loop.close()
 
 # Background task functions
-async def run_summarization_background(start_date: str, end_date: str, clear_existing: bool):
+async def run_summarization_background(since: str, clear_existing: bool):
     """Run summarization in background"""
     try:
         await run_summarization_internal_async(SummaryRequest(
-            start_date=start_date,
-            end_date=end_date,
+            since=since,
             clear_existing=clear_existing
         ))
         logger.info("Background summarization completed successfully")
@@ -784,6 +852,90 @@ async def process_importer_summary(importer: str, start_date: str, end_date: str
         return False
     except Exception as e:
         logger.error(f"Error processing summary for {importer}: {e}")
+        return False
+
+async def create_importer_summary_async(importer_name: str, start_date: str, end_date: str) -> Optional[Dict]:
+    """Create summary for a specific importer and return the summary data"""
+    try:
+        # Delete existing summary for this importer first
+        await delete_importer_summary_async(importer_name)
+        logger.info(f"Deleted existing summary for importer: {importer_name}")
+        
+        # Get records for this importer within the date range
+        records = await get_importer_records_async(importer_name, start_date, end_date)
+        
+        if records:
+            # Calculate summary
+            summary = calculate_summary(importer_name, records)
+            if summary:
+                # Insert the new summary using a more reliable method
+                success = await insert_summary_reliable_async(summary)
+                if success:
+                    logger.info(f"Successfully created summary for importer: {importer_name}")
+                    return summary
+                else:
+                    logger.error(f"Failed to insert summary for importer: {importer_name}")
+                    return None
+        
+        logger.warning(f"No records found for importer: {importer_name} in date range {start_date} to {end_date}")
+        return None
+    except Exception as e:
+        logger.error(f"Error creating summary for importer {importer_name}: {e}")
+        return None
+
+async def insert_summary_reliable_async(summary: Dict) -> bool:
+    """Insert summary into database with explicit column mapping"""
+    try:
+        query = """
+        INSERT INTO import_summaries (
+            importer_name, rfc, total_pedimentos_last_6_months, total_freight_usd_value,
+            avg_freight_usd_per_shipment, customs_offices_used, pct_shipments_key_locations,
+            pct_regime_A1, pct_regime_F4, pct_regime_IN, pct_regime_A3, pct_regime_AF,
+            pct_transport_carretero, pct_transport_aereo, pct_transport_maritimo, pct_transport_not_declared,
+            pct_port_NUEVO_LAREDO, pct_port_COLOMBIA_NL, pct_port_MONTERREY_AIRPORT, pct_port_MANZANILLO,
+            pct_port_PUEBLA, pct_port_OTHERS, pct_hs_84, pct_hs_85, pct_hs_90, pct_hs_73, pct_hs_74,
+            pct_hs_OTROS, is_origin_usa, is_candidate_for_crossborder, pct_incoterm_DAP, pct_incoterm_EXW,
+            pct_incoterm_FCA, pct_incoterm_OTROS, custom_brokers_used, top_custom_broker_id,
+            pct_top_custom_broker_id, num_custom_brokers_used, pct_origin_TAIWAN, pct_origin_VIETNAM, 
+            pct_origin_CHINA, pct_origin_USA, pct_origin_GERMANY, pct_origin_DENMARK, pct_origin_FRANCE, 
+            pct_origin_OTROS, last_import_date, first_import_date, total_weight_kg, avg_weight_per_shipment,
+            business_opportunity_score, crossborder_potential, ocean_freight_potential, supply_chain_potential
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        """
+        
+        # Extract values in the exact order they appear in the query
+        values = (
+            summary['importer_name'], summary['rfc'], summary['total_pedimentos_last_6_months'], 
+            summary['total_freight_usd_value'], summary['avg_freight_usd_per_shipment'], 
+            summary['customs_offices_used'], summary['pct_shipments_key_locations'],
+            summary['pct_regime_A1'], summary['pct_regime_F4'], summary['pct_regime_IN'], 
+            summary['pct_regime_A3'], summary['pct_regime_AF'],
+            summary['pct_transport_carretero'], summary['pct_transport_aereo'], 
+            summary['pct_transport_maritimo'], summary['pct_transport_not_declared'],
+            summary['pct_port_NUEVO_LAREDO'], summary['pct_port_COLOMBIA_NL'], 
+            summary['pct_port_MONTERREY_AIRPORT'], summary['pct_port_MANZANILLO'],
+            summary['pct_port_PUEBLA'], summary['pct_port_OTHERS'], summary['pct_hs_84'], 
+            summary['pct_hs_85'], summary['pct_hs_90'], summary['pct_hs_73'], summary['pct_hs_74'],
+            summary['pct_hs_OTROS'], summary['is_origin_usa'], summary['is_candidate_for_crossborder'], 
+            summary['pct_incoterm_DAP'], summary['pct_incoterm_EXW'],
+            summary['pct_incoterm_FCA'], summary['pct_incoterm_OTROS'], summary['custom_brokers_used'], 
+            summary['top_custom_broker_id'], summary['pct_top_custom_broker_id'], 
+            summary['num_custom_brokers_used'], summary['pct_origin_TAIWAN'], 
+            summary['pct_origin_VIETNAM'], summary['pct_origin_CHINA'], summary['pct_origin_USA'],
+            summary['pct_origin_GERMANY'], summary['pct_origin_DENMARK'], summary['pct_origin_FRANCE'], 
+            summary['pct_origin_OTROS'], summary['last_import_date'], summary['first_import_date'], 
+            summary['total_weight_kg'], summary['avg_weight_per_shipment'],
+            summary['business_opportunity_score'], summary['crossborder_potential'], 
+            summary['ocean_freight_potential'], summary['supply_chain_potential']
+        )
+        
+        await execute_query_async(query, values)
+        logger.info(f"Successfully inserted summary for {summary['importer_name']}")
+        return True
+    except Exception as e:
+        logger.error(f"Error inserting summary for {summary['importer_name']}: {e}")
         return False
 
 # API Endpoints
@@ -846,12 +998,13 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
     start_time = time.time()
     
     try:
-        # Validate dates
+        # Calculate date range from 'since' parameter
         try:
-            datetime.strptime(request.start_date, "%Y-%m-%d")
-            datetime.strptime(request.end_date, "%Y-%m-%d")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+            start_date, end_date = calculate_date_range(request.since)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        logger.info(f"Processing import request for '{request.importer_name}' from {start_date} to {end_date}")
         
         # Create database if not exists
         await create_database()
@@ -859,9 +1012,12 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
         # Clear existing data if requested (run in background)
         if request.clear_existing:
             await clear_existing_data_async()
+        else:
+            # Delete existing records for this specific importer
+            await delete_importer_records_async(request.importer_name)
         
         # Fetch data from API asynchronously
-        records = await fetch_data_from_api_async(request.start_date, request.end_date, request.importer_name)
+        records = await fetch_data_from_api_async(start_date, end_date, request.importer_name)
         
         if not records:
             return ImportResponse(
@@ -870,6 +1026,9 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
                 records_fetched=0,
                 records_inserted=0,
                 total_records=0,
+                summaries_created=0,
+                total_summaries=0,
+                summary_data=None,
                 execution_time=time.time() - start_time
             )
         
@@ -880,20 +1039,17 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
         total_records = await execute_query_async("SELECT COUNT(*) FROM import_records")
         total_records = total_records[0][0] if total_records else 0
         
-        execution_time = time.time() - start_time
-        
-        # Run summarization if requested (in background to not block response)
-        summaries_created = None
-        total_summaries = None
+        # Run summarization if requested (synchronously to include in response)
+        summary_data = None
+        summaries_created = 0
         
         if request.run_summarize:
-            # Run summarization in background for faster response
-            background_tasks.add_task(
-                run_summarization_background,
-                request.start_date,
-                request.end_date,
-                False
-            )
+            logger.info(f"Creating summary for importer: {request.importer_name}")
+            summary_data = await create_importer_summary_async(request.importer_name, start_date, end_date)
+            if summary_data:
+                summaries_created = 1
+        
+        execution_time = time.time() - start_time
         
         return ImportResponse(
             success=True,
@@ -902,7 +1058,8 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
             records_inserted=inserted,
             total_records=total_records,
             summaries_created=summaries_created,
-            total_summaries=total_summaries,
+            total_summaries=summaries_created,
+            summary_data=summary_data,
             execution_time=execution_time
         )
         
@@ -921,12 +1078,13 @@ async def run_summarization_internal_async(request: SummaryRequest) -> SummaryRe
     start_time = time.time()
     
     try:
-        # Validate dates
+        # Calculate date range from 'since' parameter
         try:
-            datetime.strptime(request.start_date, "%Y-%m-%d")
-            datetime.strptime(request.end_date, "%Y-%m-%d")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+            start_date, end_date = calculate_date_range(request.since)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        logger.info(f"Processing summarization for date range {start_date} to {end_date}")
         
         # Check if data exists
         record_count_result = await execute_query_async("SELECT COUNT(*) FROM import_records")
@@ -954,7 +1112,7 @@ async def run_summarization_internal_async(request: SummaryRequest) -> SummaryRe
             batch_tasks = []
             
             for importer in batch:
-                batch_tasks.append(process_importer_summary(importer, request.start_date, request.end_date))
+                batch_tasks.append(process_importer_summary(importer, start_date, end_date))
             
             # Process batch concurrently
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
