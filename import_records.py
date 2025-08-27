@@ -12,6 +12,8 @@ import time
 import csv
 from datetime import datetime, timedelta
 from decimal import Decimal
+from collections import Counter
+import sys
 
 # Configuration
 DATABASE_FILE = "importer.db"
@@ -240,6 +242,10 @@ def create_database():
         teus_qty REAL,
         departure_insurance_usd_value REAL,
         departure_freight_usd_value REAL,
+        custom_brokers_used TEXT,
+        top_custom_broker_id TEXT,
+        pct_top_custom_broker_id REAL,
+        num_custom_brokers_used INTEGER,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -321,7 +327,34 @@ def fetch_data_from_api(start_date, end_date, importer_name):
     
     return all_records
 
-def insert_records(records):
+def process_broker_data(records):
+    """Process broker data to extract top 5 brokers and statistics"""
+    
+    # Extract broker IDs from records
+    brokers = [r.get("custom_broker_id") for r in records if r.get("custom_broker_id")]
+    broker_counts = Counter(brokers)
+    
+    # Get total number of unique brokers
+    num_brokers = len(broker_counts)
+    
+    # Get top 5 brokers by frequency
+    top_brokers = broker_counts.most_common(5)
+    
+    # Format top brokers as comma-separated string (e.g., "1973, 1893, 1983, 9831, 1995")
+    custom_brokers_used = ", ".join([str(broker_id) for broker_id, _ in top_brokers])
+    
+    # Get top broker and its percentage
+    top_broker_id = top_brokers[0][0] if top_brokers else ""
+    pct_top_broker = round((top_brokers[0][1] / len(records) * 100), 2) if top_brokers else 0.0
+    
+    return {
+        'custom_brokers_used': custom_brokers_used,
+        'top_custom_broker_id': top_broker_id,
+        'pct_top_custom_broker_id': pct_top_broker,
+        'num_custom_brokers_used': num_brokers
+    }
+
+def insert_records(records, broker_stats):
     """Insert records into database"""
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -342,8 +375,9 @@ def insert_records(records):
                 dispatch_customs, entry_customs, custom_broker_id, customs_regime,
                 customs_regime_id, declaration_type, dispatch_customs_state, importer_id,
                 incoterm, container_type, teus_qty, departure_insurance_usd_value,
-                departure_freight_usd_value
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                departure_freight_usd_value, custom_brokers_used, top_custom_broker_id,
+                pct_top_custom_broker_id, num_custom_brokers_used
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record.get("dispatch_date"),
                 record.get("importer_name"),
@@ -368,7 +402,11 @@ def insert_records(records):
                 record.get("container_type"),
                 float(record.get("teus_qty", 0) or 0),
                 float(record.get("departure_insurance_usd_value", 0) or 0),
-                float(record.get("departure_freight_usd_value", 0) or 0)
+                float(record.get("departure_freight_usd_value", 0) or 0),
+                broker_stats['custom_brokers_used'],
+                broker_stats['top_custom_broker_id'],
+                broker_stats['pct_top_custom_broker_id'],
+                broker_stats['num_custom_brokers_used']
             ))
             inserted += 1
         except Exception as e:
@@ -446,9 +484,16 @@ def main():
     
     print(f"Fetched {len(records)} records from API")
     
+    # Process broker data
+    broker_stats = process_broker_data(records)
+    print(f"Processed broker data:")
+    print(f"  Total unique brokers: {broker_stats['num_custom_brokers_used']}")
+    print(f"  Top broker ID: {broker_stats['top_custom_broker_id']}")
+    print(f"  Percentage of records with top broker: {broker_stats['pct_top_custom_broker_id']}%")
+    
     # Insert into database
     print("Inserting records into database...")
-    inserted = insert_records(records)
+    inserted = insert_records(records, broker_stats)
     
     # Get final count
     conn = sqlite3.connect(DATABASE_FILE)
@@ -462,14 +507,21 @@ def main():
     print(f"  Total records in database: {final_count}")
     print(f"  Database: {DATABASE_FILE}")
     
+    # Show broker information
+    print(f"\n📊 BROKER ANALYSIS:")
+    print(f"  Total unique brokers: {broker_stats['num_custom_brokers_used']}")
+    print(f"  Top 5 brokers: {broker_stats['custom_brokers_used']}")
+    print(f"  Top broker ID: {broker_stats['top_custom_broker_id']}")
+    print(f"  Percentage with top broker: {broker_stats['pct_top_custom_broker_id']}%")
+    
     # Show sample data
-    cursor.execute("SELECT importer_name, departure_goods_usd_value FROM import_records LIMIT 3")
+    cursor.execute("SELECT importer_name, departure_goods_usd_value, custom_brokers_used, num_custom_brokers_used FROM import_records LIMIT 3")
     samples = cursor.fetchall()
     
     if samples:
         print(f"\nSample records:")
-        for i, (name, value) in enumerate(samples, 1):
-            print(f"  {i}. {name}: ${value}")
+        for i, (name, value, brokers, num_brokers) in enumerate(samples, 1):
+            print(f"  {i}. {name}: ${value} | Brokers: {brokers} ({num_brokers} total)")
     
     conn.close()
     print(f"\nImport completed successfully!")
@@ -479,4 +531,31 @@ def main():
 
 
 if __name__ == "__main__":
+    # Test broker processing logic
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        print("🧪 Testing broker processing logic...")
+        
+        # Test data
+        test_records = [
+            {"custom_broker_id": "1973"},
+            {"custom_broker_id": "1893"},
+            {"custom_broker_id": "1973"},
+            {"custom_broker_id": "1983"},
+            {"custom_broker_id": "9831"},
+            {"custom_broker_id": "1995"},
+            {"custom_broker_id": "1973"},
+            {"custom_broker_id": "1893"},
+            {"custom_broker_id": "2000"},
+            {"custom_broker_id": "1973"}
+        ]
+        
+        broker_stats = process_broker_data(test_records)
+        print(f"Test results:")
+        print(f"  Total unique brokers: {broker_stats['num_custom_brokers_used']}")
+        print(f"  Top 5 brokers: {broker_stats['custom_brokers_used']}")
+        print(f"  Top broker ID: {broker_stats['top_custom_broker_id']}")
+        print(f"  Percentage with top broker: {broker_stats['pct_top_custom_broker_id']}%")
+        print("✅ Test completed!")
+        sys.exit(0)
+    
     main() 

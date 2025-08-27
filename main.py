@@ -19,12 +19,13 @@ from collections import Counter
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from dotenv import load_dotenv
 import uvicorn
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
+from fastapi.exceptions import RequestValidationError
 
 # Configure logging for better debugging
 logging.basicConfig(level=logging.INFO)
@@ -55,8 +56,8 @@ def calculate_date_range(since: str) -> tuple[str, str]:
     
     Logic:
     - For "Last X Months": 
-      - End date: X months before today's date
-      - Start date: X months before the end date
+      - End date: 3 months back from today's date
+      - Start date: X months back from the end date
     
     Args:
         since: String like "Last 3 Months", "Last 6 Months", etc.
@@ -66,8 +67,8 @@ def calculate_date_range(since: str) -> tuple[str, str]:
         
     Examples:
         - "Last 3 Months" on 2025-08-25:
-          - end_date: 2025-05-25 (3 months before today)
-          - start_date: 2025-02-25 (3 months before end date)
+          - end_date: 2025-05-25 (3 months back from today's date)
+          - start_date: 2025-02-25 (3 months back from end date)
     """
     today = datetime.now()
     
@@ -78,11 +79,21 @@ def calculate_date_range(since: str) -> tuple[str, str]:
     
     months = int(match.group(1))
     
-    # Calculate end date (X months before today)
-    end_date = today - timedelta(days=3 * 30)  # Approximate month calculation
+    # Calculate end date (3 months back from today's date)
+    end_date = today
+    for _ in range(3):
+        if end_date.month == 1:
+            end_date = end_date.replace(year=end_date.year - 1, month=12)
+        else:
+            end_date = end_date.replace(month=end_date.month - 1)
     
-    # Calculate start date (X months before end date)
-    start_date = end_date - timedelta(days=months * 30)
+    # Calculate start date (X months back from end date)
+    start_date = end_date
+    for _ in range(months):
+        if start_date.month == 1:
+            start_date = start_date.replace(year=start_date.year - 1, month=12)
+        else:
+            start_date = start_date.replace(month=start_date.month - 1)
     
     # Format dates as YYYY-MM-DD
     start_date_str = start_date.strftime("%Y-%m-%d")
@@ -92,12 +103,106 @@ def calculate_date_range(since: str) -> tuple[str, str]:
     
     return start_date_str, end_date_str
 
+def validate_importer_name(importer_name: str) -> tuple[bool, str]:
+    """Validate importer name and return validation result and message"""
+    if not importer_name:
+        return False, "Importer name cannot be empty"
+    
+    if not importer_name.strip():
+        return False, "Importer name cannot contain only whitespace"
+    
+    if len(importer_name.strip()) < 3:
+        return False, "Importer name must be at least 3 characters long"
+    
+    # Check for common patterns that might indicate wrong names
+    if importer_name.lower() in ['test', 'demo', 'example', 'sample']:
+        return False, f"'{importer_name}' appears to be a test/demo name. Please provide a valid importer name."
+    
+    return True, "Valid importer name"
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Logcomex Importer API",
-    description="API for importing and summarizing Logcomex import records",
+    description="API for importing and analyzing import records from Logcomex",
     version="1.0.0"
 )
+
+# Global exception handlers
+@app.exception_handler(ValueError)
+async def value_error_handler(request, exc):
+    """Handle ValueError exceptions (like JSON validation errors)"""
+    return JSONResponse(
+        status_code=200,  # Return 200 so n8n doesn't stop
+        content={
+            "success": False,
+            "message": "Invalid request parameters",
+            "records_fetched": 0,
+            "records_inserted": 0,
+            "total_records": 0,
+            "summaries_created": 0,
+            "total_summaries": 0,
+            "summary_data": None,
+            "execution_time": 0.0,
+            "error": f"Parameter validation error: {str(exc)}. Please check your JSON parameters, especially the importer name."
+        }
+    )
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request, exc):
+    """Handle Pydantic validation errors (like JSON schema validation)"""
+    return JSONResponse(
+        status_code=200,  # Return 200 so n8n doesn't stop
+        content={
+            "success": False,
+            "message": "JSON validation error",
+            "records_fetched": 0,
+            "records_inserted": 0,
+            "total_records": 0,
+            "summaries_created": 0,
+            "total_summaries": 0,
+            "summary_data": None,
+            "execution_time": 0.0,
+            "error": f"JSON validation error: {str(exc)}. Please check your JSON parameters, especially the importer name format."
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request, exc):
+    """Handle FastAPI request validation errors"""
+    return JSONResponse(
+        status_code=200,  # Return 200 so n8n doesn't stop
+        content={
+            "success": False,
+            "message": "Request validation error",
+            "records_fetched": 0,
+            "records_inserted": 0,
+            "total_records": 0,
+            "summaries_created": 0,
+            "total_summaries": 0,
+            "summary_data": None,
+            "execution_time": 0.0,
+            "error": f"Request validation error: {str(exc)}. Please check your JSON parameters, especially the importer name format."
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle all other exceptions"""
+    return JSONResponse(
+        status_code=200,  # Return 200 so n8n doesn't stop
+        content={
+            "success": False,
+            "message": "Unexpected error occurred",
+            "records_fetched": 0,
+            "records_inserted": 0,
+            "total_records": 0,
+            "summaries_created": 0,
+            "total_summaries": 0,
+            "summary_data": None,
+            "execution_time": 0.0,
+            "error": f"Unexpected error: {str(exc)}. Please check your parameters and try again."
+        }
+    )
 
 # Pydantic models for request/response
 class ImportRequest(BaseModel):
@@ -116,6 +221,7 @@ class ImportResponse(BaseModel):
     total_summaries: Optional[int] = None
     summary_data: Optional[Dict] = None
     execution_time: float
+    error: Optional[str] = Field(None, description="Error message if success is False")
 
 class SummaryRequest(BaseModel):
     since: str = Field(..., description="Time period like 'Last 3 Months', 'Last 6 Months', etc.")
@@ -128,6 +234,13 @@ class SummaryResponse(BaseModel):
     summaries_created: int
     total_summaries: int
     execution_time: float
+    error: Optional[str] = Field(None, description="Error message if success is False")
+
+class ErrorResponse(BaseModel):
+    success: bool
+    error: str
+    detail: str
+    status_code: int
 
 class StatusResponse(BaseModel):
     database_exists: bool
@@ -407,6 +520,12 @@ async def fetch_data_from_api_async(start_date: str, end_date: str, importer_nam
                 logger.error(f"Error fetching data: {e}")
                 break
     
+    # Validate importer name by checking if we got any data
+    if not all_records:
+        # Return empty list instead of raising exception
+        # The calling function will handle this case
+        return []
+    
     return all_records
 
 def fetch_data_from_api(start_date: str, end_date: str, importer_name: str) -> List[Dict]:
@@ -659,6 +778,13 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
     brokers = [r[14] or "" for r in records if r[14]]
     broker_counts = Counter(brokers)
     num_brokers = len(broker_counts)
+    
+    # Get top 5 brokers by frequency
+    top_brokers = broker_counts.most_common(5)
+    
+    # Format top brokers as comma-separated string (e.g., "1973, 1893, 1983, 9831, 1995")
+    custom_brokers_used = ", ".join([str(broker_id) for broker_id, _ in top_brokers])
+    
     top_broker = broker_counts.most_common(1)[0] if broker_counts else ("", 0)
     pct_top_broker = round((top_broker[1] / total_records) * 100, 2) if top_broker[1] > 0 else 0
     
@@ -719,7 +845,7 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
         'pct_incoterm_EXW': pct_incoterm_EXW,
         'pct_incoterm_FCA': pct_incoterm_FCA,
         'pct_incoterm_OTROS': pct_incoterm_OTROS,
-        'custom_brokers_used': str(num_brokers),
+        'custom_brokers_used': custom_brokers_used,
         'top_custom_broker_id': top_broker[0],
         'pct_top_custom_broker_id': pct_top_broker,
         'num_custom_brokers_used': num_brokers,
@@ -998,11 +1124,40 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
     start_time = time.time()
     
     try:
+        # Validate importer name
+        is_valid, message = validate_importer_name(request.importer_name)
+        if not is_valid:
+            execution_time = time.time() - start_time
+            return ImportResponse(
+                success=False,
+                message=message,
+                records_fetched=0,
+                records_inserted=0,
+                total_records=0,
+                summaries_created=0,
+                total_summaries=0,
+                summary_data=None,
+                execution_time=execution_time,
+                error=message
+            )
+        
         # Calculate date range from 'since' parameter
         try:
             start_date, end_date = calculate_date_range(request.since)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            execution_time = time.time() - start_time
+            return ImportResponse(
+                success=False,
+                message=f"Invalid date parameter: {str(e)}",
+                records_fetched=0,
+                records_inserted=0,
+                total_records=0,
+                summaries_created=0,
+                total_summaries=0,
+                summary_data=None,
+                execution_time=execution_time,
+                error=f"Date parameter error: {str(e)}. Please check your JSON parameters, especially the 'since' field."
+            )
         
         logger.info(f"Processing import request for '{request.importer_name}' from {start_date} to {end_date}")
         
@@ -1019,17 +1174,20 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
         # Fetch data from API asynchronously
         records = await fetch_data_from_api_async(start_date, end_date, request.importer_name)
         
+        # Check if no records were found (importer name might be wrong)
         if not records:
+            execution_time = time.time() - start_time
             return ImportResponse(
-                success=True,
-                message="No records found for the specified criteria",
+                success=False,
+                message=f"No records found for importer '{request.importer_name}'. Please verify the importer name is correct and exists in the system.",
                 records_fetched=0,
                 records_inserted=0,
                 total_records=0,
                 summaries_created=0,
                 total_summaries=0,
                 summary_data=None,
-                execution_time=time.time() - start_time
+                execution_time=execution_time,
+                error=f"No records found for importer '{request.importer_name}'. Please verify the importer name is correct and exists in the system."
             )
         
         # Insert records using bulk operations
@@ -1063,10 +1221,24 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
             execution_time=execution_time
         )
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         execution_time = time.time() - start_time
         logger.error(f"Import failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+        return ImportResponse(
+            success=False,
+            message=f"Import failed: {str(e)}",
+            records_fetched=0,
+            records_inserted=0,
+            total_records=0,
+            summaries_created=0,
+            total_summaries=0,
+            summary_data=None,
+            execution_time=execution_time,
+            error=f"Unexpected error during import: {str(e)}. Please check your parameters and try again."
+        )
 
 @app.post("/summarize")
 async def run_summarization(request: SummaryRequest):
@@ -1082,7 +1254,16 @@ async def run_summarization_internal_async(request: SummaryRequest) -> SummaryRe
         try:
             start_date, end_date = calculate_date_range(request.since)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            execution_time = time.time() - start_time
+            return SummaryResponse(
+                success=False,
+                message=f"Invalid date parameter: {str(e)}",
+                importers_processed=0,
+                summaries_created=0,
+                total_summaries=0,
+                execution_time=execution_time,
+                error=f"Date parameter error: {str(e)}. Please check your JSON parameters, especially the 'since' field."
+            )
         
         logger.info(f"Processing summarization for date range {start_date} to {end_date}")
         
@@ -1091,7 +1272,16 @@ async def run_summarization_internal_async(request: SummaryRequest) -> SummaryRe
         record_count = record_count_result[0][0] if record_count_result else 0
         
         if record_count == 0:
-            raise HTTPException(status_code=400, detail="No import records found. Run import first.")
+            execution_time = time.time() - start_time
+            return SummaryResponse(
+                success=False,
+                message="No import records found. Run import first.",
+                importers_processed=0,
+                summaries_created=0,
+                total_summaries=0,
+                execution_time=execution_time,
+                error="No import records found. Please run import first before creating summaries."
+            )
         
         # Create summary table if not exists
         await create_database()
@@ -1136,7 +1326,15 @@ async def run_summarization_internal_async(request: SummaryRequest) -> SummaryRe
     except Exception as e:
         execution_time = time.time() - start_time
         logger.error(f"Summarization failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
+        return SummaryResponse(
+            success=False,
+            message=f"Summarization failed: {str(e)}",
+            importers_processed=0,
+            summaries_created=0,
+            total_summaries=0,
+            execution_time=execution_time,
+            error=f"Unexpected error during summarization: {str(e)}. Please check your parameters and try again."
+        )
 
 async def run_summarization_internal(request: SummaryRequest) -> SummaryResponse:
     """Internal summarization function (async wrapper for compatibility)"""

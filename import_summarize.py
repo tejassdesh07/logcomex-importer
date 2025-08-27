@@ -345,6 +345,13 @@ def calculate_summary(importer_name, records):
     brokers = [r[14] or "" for r in records if r[14]]  # custom_broker_id
     broker_counts = Counter(brokers)
     num_brokers = len(broker_counts)
+    
+    # Get top 5 brokers by frequency
+    top_brokers = broker_counts.most_common(5)
+    
+    # Format top brokers as comma-separated string (e.g., "1973, 1893, 1983, 9831, 1995")
+    custom_brokers_used = ", ".join([str(broker_id) for broker_id, _ in top_brokers])
+    
     top_broker = broker_counts.most_common(1)[0] if broker_counts else ("", 0)
     pct_top_broker = round((top_broker[1] / total_records) * 100, 2) if top_broker[1] > 0 else 0
     
@@ -405,7 +412,7 @@ def calculate_summary(importer_name, records):
         'pct_incoterm_EXW': pct_incoterm_EXW,
         'pct_incoterm_FCA': pct_incoterm_FCA,
         'pct_incoterm_OTROS': pct_incoterm_OTROS,
-        'custom_brokers_used': str(num_brokers),
+        'custom_brokers_used': custom_brokers_used,
         'top_custom_broker_id': top_broker[0],
         'pct_top_custom_broker_id': pct_top_broker,
         'num_custom_brokers_used': num_brokers,
