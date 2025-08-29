@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
 from fastapi.exceptions import RequestValidationError
+from dateutil.relativedelta import relativedelta
 
 # Configure logging for better debugging
 logging.basicConfig(level=logging.INFO)
@@ -79,21 +80,11 @@ def calculate_date_range(since: str) -> tuple[str, str]:
     
     months = int(match.group(1))
     
-    # Calculate end date (3 months back from today's date)
-    end_date = today
-    for _ in range(3):
-        if end_date.month == 1:
-            end_date = end_date.replace(year=end_date.year - 1, month=12)
-        else:
-            end_date = end_date.replace(month=end_date.month - 1)
+    # Calculate end date (3 months back from today's date) using relativedelta
+    end_date = today - relativedelta(months=3)
     
-    # Calculate start date (X months back from end date)
-    start_date = end_date
-    for _ in range(months):
-        if start_date.month == 1:
-            start_date = start_date.replace(year=start_date.year - 1, month=12)
-        else:
-            start_date = start_date.replace(month=start_date.month - 1)
+    # Calculate start date (X months back from end date) using relativedelta
+    start_date = end_date - relativedelta(months=months)
     
     # Format dates as YYYY-MM-DD
     start_date_str = start_date.strftime("%Y-%m-%d")
@@ -385,6 +376,9 @@ async def create_database():
                 top_custom_broker_id VARCHAR(255),
                 pct_top_custom_broker_id DECIMAL(5,2),
                 num_custom_brokers_used INT,
+                pct_broker_3995 DECIMAL(5,2),
+                pct_broker_3714 DECIMAL(5,2),
+                pct_broker_1720 DECIMAL(5,2),
                 pct_origin_TAIWAN DECIMAL(5,2),
                 pct_origin_VIETNAM DECIMAL(5,2),
                 pct_origin_CHINA DECIMAL(5,2),
@@ -788,6 +782,15 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
     top_broker = broker_counts.most_common(1)[0] if broker_counts else ("", 0)
     pct_top_broker = round((top_broker[1] / total_records) * 100, 2) if top_broker[1] > 0 else 0
     
+    # Calculate percentages for specific broker IDs (3995, 3714, 1720)
+    pct_broker_3995 = round((broker_counts.get("3995", 0) / total_records) * 100, 2)
+    pct_broker_3714 = round((broker_counts.get("3714", 0) / total_records) * 100, 2)
+    pct_broker_1720 = round((broker_counts.get("1720", 0) / total_records) * 100, 2)
+    
+    # Debug logging for broker percentages
+    logger.info(f"Broker calculations - Total records: {total_records}, Broker counts: {dict(broker_counts)}")
+    logger.info(f"Broker percentages - 3995: {pct_broker_3995}%, 3714: {pct_broker_3714}%, 1720: {pct_broker_1720}%")
+    
     # Business intelligence flags
     is_origin_usa = 1 if pct_origin_USA > 50 else 0
     is_candidate_for_crossborder = 1 if is_origin_usa else 0
@@ -849,6 +852,9 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
         'top_custom_broker_id': top_broker[0],
         'pct_top_custom_broker_id': pct_top_broker,
         'num_custom_brokers_used': num_brokers,
+        'pct_broker_3995': pct_broker_3995,
+        'pct_broker_3714': pct_broker_3714,
+        'pct_broker_1720': pct_broker_1720,
         'pct_origin_TAIWAN': pct_origin_TAIWAN,
         'pct_origin_VIETNAM': pct_origin_VIETNAM,
         'pct_origin_CHINA': pct_origin_CHINA,
@@ -880,11 +886,11 @@ async def insert_summary_async(summary: Dict) -> bool:
             pct_port_PUEBLA, pct_port_OTHERS, pct_hs_84, pct_hs_85, pct_hs_90, pct_hs_73, pct_hs_74,
             pct_hs_OTROS, is_origin_usa, is_candidate_for_crossborder, pct_incoterm_DAP, pct_incoterm_EXW,
             pct_incoterm_FCA, pct_incoterm_OTROS, custom_brokers_used, top_custom_broker_id,
-            pct_top_custom_broker_id, num_custom_brokers_used, pct_origin_TAIWAN, pct_origin_VIETNAM, pct_origin_CHINA, pct_origin_USA,
+            pct_top_custom_broker_id, num_custom_brokers_used, pct_broker_3995, pct_broker_3714, pct_broker_1720, pct_origin_TAIWAN, pct_origin_VIETNAM, pct_origin_CHINA, pct_origin_USA,
             pct_origin_GERMANY, pct_origin_DENMARK, pct_origin_FRANCE, pct_origin_OTROS,
             last_import_date, first_import_date, total_weight_kg, avg_weight_per_shipment,
             business_opportunity_score, crossborder_potential, ocean_freight_potential, supply_chain_potential
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             rfc = VALUES(rfc),
             total_pedimentos_last_6_months = VALUES(total_pedimentos_last_6_months),
@@ -923,6 +929,9 @@ async def insert_summary_async(summary: Dict) -> bool:
             top_custom_broker_id = VALUES(top_custom_broker_id),
             pct_top_custom_broker_id = VALUES(pct_top_custom_broker_id),
             num_custom_brokers_used = VALUES(num_custom_brokers_used),
+            pct_broker_3995 = VALUES(pct_broker_3995),
+            pct_broker_3714 = VALUES(pct_broker_3714),
+            pct_broker_1720 = VALUES(pct_broker_1720),
             pct_origin_TAIWAN = VALUES(pct_origin_TAIWAN),
             pct_origin_VIETNAM = VALUES(pct_origin_VIETNAM),
             pct_origin_CHINA = VALUES(pct_origin_CHINA),
@@ -992,8 +1001,10 @@ async def create_importer_summary_async(importer_name: str, start_date: str, end
         
         if records:
             # Calculate summary
+            logger.info(f"About to call calculate_summary for {importer_name} with {len(records)} records")
             summary = calculate_summary(importer_name, records)
             if summary:
+                logger.info(f"Summary calculated successfully for {importer_name}, broker fields: 3995={summary.get('pct_broker_3995', 'NOT_FOUND')}, 3714={summary.get('pct_broker_3714', 'NOT_FOUND')}, 1720={summary.get('pct_broker_1720', 'NOT_FOUND')}")
                 # Insert the new summary using a more reliable method
                 success = await insert_summary_reliable_async(summary)
                 if success:
@@ -1022,12 +1033,12 @@ async def insert_summary_reliable_async(summary: Dict) -> bool:
             pct_port_PUEBLA, pct_port_OTHERS, pct_hs_84, pct_hs_85, pct_hs_90, pct_hs_73, pct_hs_74,
             pct_hs_OTROS, is_origin_usa, is_candidate_for_crossborder, pct_incoterm_DAP, pct_incoterm_EXW,
             pct_incoterm_FCA, pct_incoterm_OTROS, custom_brokers_used, top_custom_broker_id,
-            pct_top_custom_broker_id, num_custom_brokers_used, pct_origin_TAIWAN, pct_origin_VIETNAM, 
+            pct_top_custom_broker_id, num_custom_brokers_used, pct_broker_3995, pct_broker_3714, pct_broker_1720, pct_origin_TAIWAN, pct_origin_VIETNAM, 
             pct_origin_CHINA, pct_origin_USA, pct_origin_GERMANY, pct_origin_DENMARK, pct_origin_FRANCE, 
             pct_origin_OTROS, last_import_date, first_import_date, total_weight_kg, avg_weight_per_shipment,
             business_opportunity_score, crossborder_potential, ocean_freight_potential, supply_chain_potential
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         """
         
@@ -1048,7 +1059,7 @@ async def insert_summary_reliable_async(summary: Dict) -> bool:
             summary['pct_incoterm_DAP'], summary['pct_incoterm_EXW'],
             summary['pct_incoterm_FCA'], summary['pct_incoterm_OTROS'], summary['custom_brokers_used'], 
             summary['top_custom_broker_id'], summary['pct_top_custom_broker_id'], 
-            summary['num_custom_brokers_used'], summary['pct_origin_TAIWAN'], 
+            summary['num_custom_brokers_used'], summary['pct_broker_3995'], summary['pct_broker_3714'], summary['pct_broker_1720'], summary['pct_origin_TAIWAN'], 
             summary['pct_origin_VIETNAM'], summary['pct_origin_CHINA'], summary['pct_origin_USA'],
             summary['pct_origin_GERMANY'], summary['pct_origin_DENMARK'], summary['pct_origin_FRANCE'], 
             summary['pct_origin_OTROS'], summary['last_import_date'], summary['first_import_date'], 
@@ -1359,6 +1370,12 @@ async def export_csv(
                 data = await execute_query_async("SELECT * FROM import_summaries")
                 columns_result = await execute_query_async("SHOW COLUMNS FROM import_summaries")
                 columns = [row[0] for row in columns_result] if columns_result else []
+            
+            # Debug logging
+            logger.info(f"Export data type: {type(data)}")
+            logger.info(f"Export data length: {len(data) if data else 'None'}")
+            logger.info(f"Export columns type: {type(columns)}")
+            logger.info(f"Export columns length: {len(columns) if columns else 'None'}")
             
         except Exception as e:
             logger.error(f"Error exporting data: {e}")
