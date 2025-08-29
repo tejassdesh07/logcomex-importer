@@ -350,6 +350,9 @@ async def create_database():
                 pct_regime_IN DECIMAL(5,2),
                 pct_regime_A3 DECIMAL(5,2),
                 pct_regime_AF DECIMAL(5,2),
+                pct_regime_C1 DECIMAL(5,2),
+                pct_regime_F5 DECIMAL(5,2),
+                pct_regime_OTHERS DECIMAL(5,2),
                 pct_transport_carretero DECIMAL(5,2),
                 pct_transport_aereo DECIMAL(5,2),
                 pct_transport_maritimo DECIMAL(5,2),
@@ -359,6 +362,14 @@ async def create_database():
                 pct_port_MONTERREY_AIRPORT DECIMAL(5,2),
                 pct_port_MANZANILLO DECIMAL(5,2),
                 pct_port_PUEBLA DECIMAL(5,2),
+                pct_port_AIFA_AIRPORT DECIMAL(5,2),
+                pct_port_NOGALES DECIMAL(5,2),
+                pct_port_ALTAMIRA DECIMAL(5,2),
+                pct_port_AICM_AIRPORT DECIMAL(5,2),
+                pct_port_LAZARO DECIMAL(5,2),
+                pct_port_VERACRUZ DECIMAL(5,2),
+                pct_port_TIJUANA DECIMAL(5,2),
+                pct_port_GUAYMAS DECIMAL(5,2),
                 pct_port_OTHERS DECIMAL(5,2),
                 pct_hs_84 DECIMAL(5,2),
                 pct_hs_85 DECIMAL(5,2),
@@ -371,6 +382,10 @@ async def create_database():
                 pct_incoterm_DAP DECIMAL(5,2),
                 pct_incoterm_EXW DECIMAL(5,2),
                 pct_incoterm_FCA DECIMAL(5,2),
+                pct_incoterm_FOB DECIMAL(5,2),
+                pct_incoterm_CIF DECIMAL(5,2),
+                pct_incoterm_CFR DECIMAL(5,2),
+                pct_incoterm_NOT_INFORMED DECIMAL(5,2),
                 pct_incoterm_OTROS DECIMAL(5,2),
                 custom_brokers_used TEXT,
                 top_custom_broker_id VARCHAR(255),
@@ -658,6 +673,9 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
     pct_regime_IN = round((regime_counts.get("IN", 0) / total_records) * 100, 2)
     pct_regime_A3 = round((regime_counts.get("A3", 0) / total_records) * 100, 2)
     pct_regime_AF = round((regime_counts.get("AF", 0) / total_records) * 100, 2)
+    pct_regime_C1 = round((regime_counts.get("C1", 0) / total_records) * 100, 2)
+    pct_regime_F5 = round((regime_counts.get("F5", 0) / total_records) * 100, 2)
+    pct_regime_OTHERS = round(((total_records - regime_counts.get("A1", 0) - regime_counts.get("F4", 0) - regime_counts.get("IN", 0) - regime_counts.get("A3", 0) - regime_counts.get("AF", 0) - regime_counts.get("C1", 0) - regime_counts.get("F5", 0)) / total_records) * 100, 2)
     
     # Transport percentages
     transports = [r[8] or "" for r in records]
@@ -680,7 +698,7 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
     pct_transport_not_declared = round((transport_counts["NOT_DECLARED"] / total_records) * 100, 2)
     
     # Port percentages
-    port_counts = {"NUEVO_LAREDO": 0, "COLOMBIA_NL": 0, "MONTERREY_AIRPORT": 0, "MANZANILLO": 0, "PUEBLA": 0, "OTHERS": 0}
+    port_counts = {"NUEVO_LAREDO": 0, "COLOMBIA_NL": 0, "MONTERREY_AIRPORT": 0, "MANZANILLO": 0, "PUEBLA": 0, "AIFA_AIRPORT": 0, "NOGALES": 0, "ALTAMIRA": 0, "AICM_AIRPORT": 0, "LAZARO": 0, "VERACRUZ": 0, "TIJUANA": 0, "GUAYMAS": 0, "OTHERS": 0}
     
     for record in records:
         entry_customs = (record[13] or "").upper()
@@ -697,6 +715,22 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
             port_counts["MANZANILLO"] += 1
         elif "PUEBLA, HEROICA PUEBLA DE ZARAGOZA, PUEBLA" in customs_combined:
             port_counts["PUEBLA"] += 1
+        elif "AEROPUERTO INTERNACIONAL FELIPE ANGELES, SANTA LUCIA, ZUMPANGO, ESTADO DE MEXICO" in customs_combined:
+            port_counts["AIFA_AIRPORT"] += 1
+        elif "NOGALES, NOGALES, SONORA" in customs_combined:
+            port_counts["NOGALES"] += 1
+        elif "ALTAMIRA, ALTAMIRA, TAMAULIPAS" in customs_combined:
+            port_counts["ALTAMIRA"] += 1
+        elif "AEROPUERTO INTERNACIONAL DE LA CIUDAD DE MEXICO, CIUDAD DE MEXICO, CIUDAD DE MEXICO" in customs_combined:
+            port_counts["AICM_AIRPORT"] += 1
+        elif "LAZARO CARDENAS, LAZARO CARDENAS, MICHOACAN" in customs_combined:
+            port_counts["LAZARO"] += 1
+        elif "VERACRUZ, VERACRUZ, VERACRUZ" in customs_combined:
+            port_counts["VERACRUZ"] += 1
+        elif "TIJUANA, TIJUANA, BAJA CALIFORNIA" in customs_combined:
+            port_counts["TIJUANA"] += 1
+        elif "GUAYMAS, GUAYMAS, SONORA" in customs_combined:
+            port_counts["GUAYMAS"] += 1
         else:
             port_counts["OTHERS"] += 1
     
@@ -705,6 +739,14 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
     pct_port_MONTERREY_AIRPORT = round((port_counts["MONTERREY_AIRPORT"] / total_records) * 100, 2)
     pct_port_MANZANILLO = round((port_counts["MANZANILLO"] / total_records) * 100, 2)
     pct_port_PUEBLA = round((port_counts["PUEBLA"] / total_records) * 100, 2)
+    pct_port_AIFA_AIRPORT = round((port_counts["AIFA_AIRPORT"] / total_records) * 100, 2)
+    pct_port_NOGALES = round((port_counts["NOGALES"] / total_records) * 100, 2)
+    pct_port_ALTAMIRA = round((port_counts["ALTAMIRA"] / total_records) * 100, 2)
+    pct_port_AICM_AIRPORT = round((port_counts["AICM_AIRPORT"] / total_records) * 100, 2)
+    pct_port_LAZARO = round((port_counts["LAZARO"] / total_records) * 100, 2)
+    pct_port_VERACRUZ = round((port_counts["VERACRUZ"] / total_records) * 100, 2)
+    pct_port_TIJUANA = round((port_counts["TIJUANA"] / total_records) * 100, 2)
+    pct_port_GUAYMAS = round((port_counts["GUAYMAS"] / total_records) * 100, 2)
     pct_port_OTHERS = round((port_counts["OTHERS"] / total_records) * 100, 2)
     
     # HS Code percentages
@@ -766,7 +808,11 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
     pct_incoterm_DAP = round((incoterm_counts.get("DAP", 0) / total_records) * 100, 2)
     pct_incoterm_EXW = round((incoterm_counts.get("EXW", 0) / total_records) * 100, 2)
     pct_incoterm_FCA = round((incoterm_counts.get("FCA", 0) / total_records) * 100, 2)
-    pct_incoterm_OTROS = round(((total_records - incoterm_counts.get("DAP", 0) - incoterm_counts.get("EXW", 0) - incoterm_counts.get("FCA", 0)) / total_records) * 100, 2)
+    pct_incoterm_FOB = round((incoterm_counts.get("FOB", 0) / total_records) * 100, 2)
+    pct_incoterm_CIF = round((incoterm_counts.get("CIF", 0) / total_records) * 100, 2)
+    pct_incoterm_CFR = round((incoterm_counts.get("CFR", 0) / total_records) * 100, 2)
+    pct_incoterm_NOT_INFORMED = round((incoterm_counts.get("NO INFORMADO", 0) / total_records) * 100, 2)
+    pct_incoterm_OTROS = round(((total_records - incoterm_counts.get("DAP", 0) - incoterm_counts.get("EXW", 0) - incoterm_counts.get("FCA", 0) - incoterm_counts.get("FOB", 0) - incoterm_counts.get("CIF", 0) - incoterm_counts.get("CFR", 0) - incoterm_counts.get("NO INFORMADO", 0)) / total_records) * 100, 2)
     
     # Custom brokers
     brokers = [r[14] or "" for r in records if r[14]]
@@ -826,6 +872,9 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
         'pct_regime_IN': pct_regime_A1,
         'pct_regime_A3': pct_regime_A3,
         'pct_regime_AF': pct_regime_AF,
+        'pct_regime_C1': pct_regime_C1,
+        'pct_regime_F5': pct_regime_F5,
+        'pct_regime_OTHERS': pct_regime_OTHERS,
         'pct_transport_carretero': pct_transport_carretero,
         'pct_transport_aereo': pct_transport_aereo,
         'pct_transport_maritimo': pct_transport_maritimo,
@@ -835,6 +884,14 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
         'pct_port_MONTERREY_AIRPORT': pct_port_MONTERREY_AIRPORT,
         'pct_port_MANZANILLO': pct_port_MANZANILLO,
         'pct_port_PUEBLA': pct_port_PUEBLA,
+        'pct_port_AIFA_AIRPORT': pct_port_AIFA_AIRPORT,
+        'pct_port_NOGALES': pct_port_NOGALES,
+        'pct_port_ALTAMIRA': pct_port_ALTAMIRA,
+        'pct_port_AICM_AIRPORT': pct_port_AICM_AIRPORT,
+        'pct_port_LAZARO': pct_port_LAZARO,
+        'pct_port_VERACRUZ': pct_port_VERACRUZ,
+        'pct_port_TIJUANA': pct_port_TIJUANA,
+        'pct_port_GUAYMAS': pct_port_GUAYMAS,
         'pct_port_OTHERS': pct_port_OTHERS,
         'pct_hs_84': pct_hs_84,
         'pct_hs_85': pct_hs_85,
@@ -847,6 +904,10 @@ def calculate_summary(importer_name: str, records: List[tuple]) -> Optional[Dict
         'pct_incoterm_DAP': pct_incoterm_DAP,
         'pct_incoterm_EXW': pct_incoterm_EXW,
         'pct_incoterm_FCA': pct_incoterm_FCA,
+        'pct_incoterm_FOB': pct_incoterm_FOB,
+        'pct_incoterm_CIF': pct_incoterm_CIF,
+        'pct_incoterm_CFR': pct_incoterm_CFR,
+        'pct_incoterm_NOT_INFORMED': pct_incoterm_NOT_INFORMED,
         'pct_incoterm_OTROS': pct_incoterm_OTROS,
         'custom_brokers_used': custom_brokers_used,
         'top_custom_broker_id': top_broker[0],
@@ -880,17 +941,17 @@ async def insert_summary_async(summary: Dict) -> bool:
         INSERT INTO import_summaries (
             importer_name, rfc, total_pedimentos_last_6_months, total_freight_usd_value,
             avg_freight_usd_per_shipment, customs_offices_used, pct_shipments_key_locations,
-            pct_regime_A1, pct_regime_F4, pct_regime_IN, pct_regime_A3, pct_regime_AF,
+            pct_regime_A1, pct_regime_F4, pct_regime_IN, pct_regime_A3, pct_regime_AF, pct_regime_C1, pct_regime_F5, pct_regime_OTHERS,
             pct_transport_carretero, pct_transport_aereo, pct_transport_maritimo, pct_transport_not_declared,
             pct_port_NUEVO_LAREDO, pct_port_COLOMBIA_NL, pct_port_MONTERREY_AIRPORT, pct_port_MANZANILLO,
-            pct_port_PUEBLA, pct_port_OTHERS, pct_hs_84, pct_hs_85, pct_hs_90, pct_hs_73, pct_hs_74,
+            pct_port_PUEBLA, pct_port_AIFA_AIRPORT, pct_port_NOGALES, pct_port_ALTAMIRA, pct_port_AICM_AIRPORT, pct_port_LAZARO, pct_port_VERACRUZ, pct_port_TIJUANA, pct_port_GUAYMAS, pct_port_OTHERS, pct_hs_84, pct_hs_85, pct_hs_90, pct_hs_73, pct_hs_74,
             pct_hs_OTROS, is_origin_usa, is_candidate_for_crossborder, pct_incoterm_DAP, pct_incoterm_EXW,
-            pct_incoterm_FCA, pct_incoterm_OTROS, custom_brokers_used, top_custom_broker_id,
+            pct_incoterm_FCA, pct_incoterm_FOB, pct_incoterm_CIF, pct_incoterm_CFR, pct_incoterm_NOT_INFORMED, pct_incoterm_OTROS, custom_brokers_used, top_custom_broker_id,
             pct_top_custom_broker_id, num_custom_brokers_used, pct_broker_3995, pct_broker_3714, pct_broker_1720, pct_origin_TAIWAN, pct_origin_VIETNAM, pct_origin_CHINA, pct_origin_USA,
             pct_origin_GERMANY, pct_origin_DENMARK, pct_origin_FRANCE, pct_origin_OTROS,
             last_import_date, first_import_date, total_weight_kg, avg_weight_per_shipment,
             business_opportunity_score, crossborder_potential, ocean_freight_potential, supply_chain_potential
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             rfc = VALUES(rfc),
             total_pedimentos_last_6_months = VALUES(total_pedimentos_last_6_months),
@@ -903,6 +964,9 @@ async def insert_summary_async(summary: Dict) -> bool:
             pct_regime_IN = VALUES(pct_regime_IN),
             pct_regime_A3 = VALUES(pct_regime_A3),
             pct_regime_AF = VALUES(pct_regime_AF),
+            pct_regime_C1 = VALUES(pct_regime_C1),
+            pct_regime_F5 = VALUES(pct_regime_F5),
+            pct_regime_OTHERS = VALUES(pct_regime_OTHERS),
             pct_transport_carretero = VALUES(pct_transport_carretero),
             pct_transport_aereo = VALUES(pct_transport_aereo),
             pct_transport_maritimo = VALUES(pct_transport_maritimo),
@@ -912,6 +976,14 @@ async def insert_summary_async(summary: Dict) -> bool:
             pct_port_MONTERREY_AIRPORT = VALUES(pct_port_MONTERREY_AIRPORT),
             pct_port_MANZANILLO = VALUES(pct_port_MANZANILLO),
             pct_port_PUEBLA = VALUES(pct_port_PUEBLA),
+            pct_port_AIFA_AIRPORT = VALUES(pct_port_AIFA_AIRPORT),
+            pct_port_NOGALES = VALUES(pct_port_NOGALES),
+            pct_port_ALTAMIRA = VALUES(pct_port_ALTAMIRA),
+            pct_port_AICM_AIRPORT = VALUES(pct_port_AICM_AIRPORT),
+            pct_port_LAZARO = VALUES(pct_port_LAZARO),
+            pct_port_VERACRUZ = VALUES(pct_port_VERACRUZ),
+            pct_port_TIJUANA = VALUES(pct_port_TIJUANA),
+            pct_port_GUAYMAS = VALUES(pct_port_GUAYMAS),
             pct_port_OTHERS = VALUES(pct_port_OTHERS),
             pct_hs_84 = VALUES(pct_hs_84),
             pct_hs_85 = VALUES(pct_hs_85),
@@ -924,6 +996,10 @@ async def insert_summary_async(summary: Dict) -> bool:
             pct_incoterm_DAP = VALUES(pct_incoterm_DAP),
             pct_incoterm_EXW = VALUES(pct_incoterm_EXW),
             pct_incoterm_FCA = VALUES(pct_incoterm_FCA),
+            pct_incoterm_FOB = VALUES(pct_incoterm_FOB),
+            pct_incoterm_CIF = VALUES(pct_incoterm_CIF),
+            pct_incoterm_CFR = VALUES(pct_incoterm_CFR),
+            pct_incoterm_NOT_INFORMED = VALUES(pct_incoterm_NOT_INFORMED),
             pct_incoterm_OTROS = VALUES(pct_incoterm_OTROS),
             custom_brokers_used = VALUES(custom_brokers_used),
             top_custom_broker_id = VALUES(top_custom_broker_id),
@@ -949,7 +1025,30 @@ async def insert_summary_async(summary: Dict) -> bool:
             ocean_freight_potential = VALUES(ocean_freight_potential),
             supply_chain_potential = VALUES(supply_chain_potential),
             updated_at = CURRENT_TIMESTAMP
-        """, tuple(summary.values()))
+        """, (
+            summary['importer_name'], summary['rfc'], summary['total_pedimentos_last_6_months'], 
+            summary['total_freight_usd_value'], summary['avg_freight_usd_per_shipment'], 
+            summary['customs_offices_used'], summary['pct_shipments_key_locations'],
+            summary['pct_regime_A1'], summary['pct_regime_F4'], summary['pct_regime_IN'], 
+            summary['pct_regime_A3'], summary['pct_regime_AF'], summary['pct_regime_C1'], summary['pct_regime_F5'], summary['pct_regime_OTHERS'],
+            summary['pct_transport_carretero'], summary['pct_transport_aereo'], 
+            summary['pct_transport_maritimo'], summary['pct_transport_not_declared'],
+            summary['pct_port_NUEVO_LAREDO'], summary['pct_port_COLOMBIA_NL'], 
+            summary['pct_port_MONTERREY_AIRPORT'], summary['pct_port_MANZANILLO'],
+            summary['pct_port_PUEBLA'], summary['pct_port_AIFA_AIRPORT'], summary['pct_port_NOGALES'], summary['pct_port_ALTAMIRA'], summary['pct_port_AICM_AIRPORT'], summary['pct_port_LAZARO'], summary['pct_port_VERACRUZ'], summary['pct_port_TIJUANA'], summary['pct_port_GUAYMAS'], summary['pct_port_OTHERS'], summary['pct_hs_84'], 
+            summary['pct_hs_85'], summary['pct_hs_90'], summary['pct_hs_73'], summary['pct_hs_74'],
+            summary['pct_hs_OTROS'], summary['is_origin_usa'], summary['is_candidate_for_crossborder'], 
+            summary['pct_incoterm_DAP'], summary['pct_incoterm_EXW'],
+            summary['pct_incoterm_FCA'], summary['pct_incoterm_FOB'], summary['pct_incoterm_CIF'], summary['pct_incoterm_CFR'], summary['pct_incoterm_NOT_INFORMED'], summary['pct_incoterm_OTROS'], summary['custom_brokers_used'], 
+            summary['top_custom_broker_id'], summary['pct_top_custom_broker_id'], 
+            summary['num_custom_brokers_used'], summary['pct_broker_3995'], summary['pct_broker_3714'], summary['pct_broker_1720'], summary['pct_origin_TAIWAN'], 
+            summary['pct_origin_VIETNAM'], summary['pct_origin_CHINA'], summary['pct_origin_USA'],
+            summary['pct_origin_GERMANY'], summary['pct_origin_DENMARK'], summary['pct_origin_FRANCE'], 
+            summary['pct_origin_OTROS'], summary['last_import_date'], summary['first_import_date'], 
+            summary['total_weight_kg'], summary['avg_weight_per_shipment'],
+            summary['business_opportunity_score'], summary['crossborder_potential'], 
+            summary['ocean_freight_potential'], summary['supply_chain_potential']
+        ))
         return True
     except Exception as e:
         logger.error(f"Error inserting summary for {summary['importer_name']}: {e}")
@@ -1027,19 +1126,17 @@ async def insert_summary_reliable_async(summary: Dict) -> bool:
         INSERT INTO import_summaries (
             importer_name, rfc, total_pedimentos_last_6_months, total_freight_usd_value,
             avg_freight_usd_per_shipment, customs_offices_used, pct_shipments_key_locations,
-            pct_regime_A1, pct_regime_F4, pct_regime_IN, pct_regime_A3, pct_regime_AF,
+            pct_regime_A1, pct_regime_F4, pct_regime_IN, pct_regime_A3, pct_regime_AF, pct_regime_C1, pct_regime_F5, pct_regime_OTHERS,
             pct_transport_carretero, pct_transport_aereo, pct_transport_maritimo, pct_transport_not_declared,
             pct_port_NUEVO_LAREDO, pct_port_COLOMBIA_NL, pct_port_MONTERREY_AIRPORT, pct_port_MANZANILLO,
-            pct_port_PUEBLA, pct_port_OTHERS, pct_hs_84, pct_hs_85, pct_hs_90, pct_hs_73, pct_hs_74,
+            pct_port_PUEBLA, pct_port_AIFA_AIRPORT, pct_port_NOGALES, pct_port_ALTAMIRA, pct_port_AICM_AIRPORT, pct_port_LAZARO, pct_port_VERACRUZ, pct_port_TIJUANA, pct_port_GUAYMAS, pct_port_OTHERS, pct_hs_84, pct_hs_85, pct_hs_90, pct_hs_73, pct_hs_74,
             pct_hs_OTROS, is_origin_usa, is_candidate_for_crossborder, pct_incoterm_DAP, pct_incoterm_EXW,
-            pct_incoterm_FCA, pct_incoterm_OTROS, custom_brokers_used, top_custom_broker_id,
+            pct_incoterm_FCA, pct_incoterm_FOB, pct_incoterm_CIF, pct_incoterm_CFR, pct_incoterm_NOT_INFORMED, pct_incoterm_OTROS, custom_brokers_used, top_custom_broker_id,
             pct_top_custom_broker_id, num_custom_brokers_used, pct_broker_3995, pct_broker_3714, pct_broker_1720, pct_origin_TAIWAN, pct_origin_VIETNAM, 
             pct_origin_CHINA, pct_origin_USA, pct_origin_GERMANY, pct_origin_DENMARK, pct_origin_FRANCE, 
             pct_origin_OTROS, last_import_date, first_import_date, total_weight_kg, avg_weight_per_shipment,
             business_opportunity_score, crossborder_potential, ocean_freight_potential, supply_chain_potential
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        )
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         # Extract values in the exact order they appear in the query
@@ -1048,16 +1145,16 @@ async def insert_summary_reliable_async(summary: Dict) -> bool:
             summary['total_freight_usd_value'], summary['avg_freight_usd_per_shipment'], 
             summary['customs_offices_used'], summary['pct_shipments_key_locations'],
             summary['pct_regime_A1'], summary['pct_regime_F4'], summary['pct_regime_IN'], 
-            summary['pct_regime_A3'], summary['pct_regime_AF'],
+            summary['pct_regime_A3'], summary['pct_regime_AF'], summary['pct_regime_C1'], summary['pct_regime_F5'], summary['pct_regime_OTHERS'],
             summary['pct_transport_carretero'], summary['pct_transport_aereo'], 
             summary['pct_transport_maritimo'], summary['pct_transport_not_declared'],
             summary['pct_port_NUEVO_LAREDO'], summary['pct_port_COLOMBIA_NL'], 
             summary['pct_port_MONTERREY_AIRPORT'], summary['pct_port_MANZANILLO'],
-            summary['pct_port_PUEBLA'], summary['pct_port_OTHERS'], summary['pct_hs_84'], 
+            summary['pct_port_PUEBLA'], summary['pct_port_AIFA_AIRPORT'], summary['pct_port_NOGALES'], summary['pct_port_ALTAMIRA'], summary['pct_port_AICM_AIRPORT'], summary['pct_port_LAZARO'], summary['pct_port_VERACRUZ'], summary['pct_port_TIJUANA'], summary['pct_port_GUAYMAS'], summary['pct_port_OTHERS'], summary['pct_hs_84'], 
             summary['pct_hs_85'], summary['pct_hs_90'], summary['pct_hs_73'], summary['pct_hs_74'],
             summary['pct_hs_OTROS'], summary['is_origin_usa'], summary['is_candidate_for_crossborder'], 
             summary['pct_incoterm_DAP'], summary['pct_incoterm_EXW'],
-            summary['pct_incoterm_FCA'], summary['pct_incoterm_OTROS'], summary['custom_brokers_used'], 
+            summary['pct_incoterm_FCA'], summary['pct_incoterm_FOB'], summary['pct_incoterm_CIF'], summary['pct_incoterm_CFR'], summary['pct_incoterm_NOT_INFORMED'], summary['pct_incoterm_OTROS'], summary['custom_brokers_used'], 
             summary['top_custom_broker_id'], summary['pct_top_custom_broker_id'], 
             summary['num_custom_brokers_used'], summary['pct_broker_3995'], summary['pct_broker_3714'], summary['pct_broker_1720'], summary['pct_origin_TAIWAN'], 
             summary['pct_origin_VIETNAM'], summary['pct_origin_CHINA'], summary['pct_origin_USA'],
