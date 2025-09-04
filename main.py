@@ -201,6 +201,7 @@ class ImportRequest(BaseModel):
     importer_name: str = Field(..., description="Importer name to search for")
     clear_existing: bool = Field(False, description="Whether to clear existing records before import")
     run_summarize: bool = Field(True, description="Whether to run summarization after import")
+    type: str = Field("import", description="Type of operation: 'import' or 'export' (affects product-signature header)")
 
 class ImportResponse(BaseModel):
     success: bool
@@ -288,9 +289,21 @@ async def execute_query_async(query: str, params: tuple = None):
     async with pool.acquire() as conn:
         async with conn.cursor() as cursor:
             await cursor.execute(query, params or ())
-            if query.strip().upper().startswith('SELECT'):
-                return await cursor.fetchall()
-            return cursor.rowcount
+            # Check if it's a SELECT query (including SELECT COUNT, SELECT *, etc.)
+            query_upper = query.strip().upper()
+            logger.info(f"Executing query: {query}")
+            logger.info(f"Query upper: {query_upper}")
+            logger.info(f"Starts with SELECT: {query_upper.startswith('SELECT')}")
+            logger.info(f"Starts with SHOW: {query_upper.startswith('SHOW')}")
+            
+            if query_upper.startswith('SELECT') or query_upper.startswith('SHOW'):
+                result = await cursor.fetchall()
+                logger.info(f"SELECT query result type: {type(result)}, length: {len(result) if result else 'None'}")
+                return result
+            else:
+                result = cursor.rowcount
+                logger.info(f"Non-SELECT query result: {result}, type: {type(result)}")
+                return result
 
 # Database functions
 async def create_database():
@@ -470,12 +483,15 @@ def clear_summaries():
     finally:
         loop.close()
 
-async def fetch_data_from_api_async(start_date: str, end_date: str, importer_name: str) -> List[Dict]:
+async def fetch_data_from_api_async(start_date: str, end_date: str, importer_name: str, operation_type: str = "import") -> List[Dict]:
     """Fetch data from Logcomex API asynchronously"""
+    # Set product-signature header based on operation type
+    product_signature = 'mexico-export-logistic' if operation_type == 'export' else 'mexico-import-logistic'
+    
     headers = {
         'Content-Type': 'application/json',
         'x-api-key': API_KEY,
-        'product-signature': 'mexico-import-logistic'
+        'product-signature': product_signature
     }
     
     payload = {
@@ -537,12 +553,12 @@ async def fetch_data_from_api_async(start_date: str, end_date: str, importer_nam
     
     return all_records
 
-def fetch_data_from_api(start_date: str, end_date: str, importer_name: str) -> List[Dict]:
+def fetch_data_from_api(start_date: str, end_date: str, importer_name: str, operation_type: str = "import") -> List[Dict]:
     """Synchronous wrapper for API fetch (for backward compatibility)"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        return loop.run_until_complete(fetch_data_from_api_async(start_date, end_date, importer_name))
+        return loop.run_until_complete(fetch_data_from_api_async(start_date, end_date, importer_name, operation_type))
     finally:
         loop.close()
 
@@ -1184,6 +1200,7 @@ async def root():
             "summarize": "/summarize",
             "status": "/status",
             "export_csv": "/export/csv",
+            "export_importer": "/export/importer",
             "docs": "/docs"
         }
     }
@@ -1280,7 +1297,7 @@ async def import_records(request: ImportRequest, background_tasks: BackgroundTas
             await delete_importer_records_async(request.importer_name)
         
         # Fetch data from API asynchronously
-        records = await fetch_data_from_api_async(start_date, end_date, request.importer_name)
+        records = await fetch_data_from_api_async(start_date, end_date, request.importer_name, request.type)
         
         # Check if no records were found (importer name might be wrong)
         if not records:
@@ -1505,6 +1522,116 @@ async def export_csv(
         )
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+@app.get("/export/importer")
+async def export_importer_csv(
+    importer_name: str = Query(..., description="Importer name to export records for"),
+    filename: Optional[str] = Query(None, description="Custom filename (optional)")
+):
+    """Export records for a specific importer to CSV"""
+    try:
+        logger.info(f"Export request for importer: '{importer_name}', filename: '{filename}'")
+        logger.info(f"Importer name type: {type(importer_name)}")
+        
+        # Check if importer exists in database
+        logger.info("Checking if importer exists in database...")
+        try:
+            importer_check = await execute_query_async(
+                "SELECT COUNT(*) FROM import_records WHERE importer_name = %s",
+                (importer_name,)
+            )
+            logger.info(f"Importer check result: {importer_check}, type: {type(importer_check)}")
+        except Exception as db_error:
+            logger.error(f"Database query error: {db_error}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+        
+        if not importer_check or importer_check[0][0] == 0:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No records found for importer '{importer_name}'. Please verify the importer name is correct."
+            )
+        
+        # Get records for the specific importer
+        logger.info("Fetching records for importer...")
+        data = await execute_query_async(
+            "SELECT * FROM import_records WHERE importer_name = %s ORDER BY dispatch_date DESC",
+            (importer_name,)
+        )
+        logger.info(f"Data fetched: {type(data)}, length: {len(data) if data else 'None'}")
+        
+        # Get column names
+        logger.info("Fetching column names...")
+        columns_result = await execute_query_async("SHOW COLUMNS FROM import_records")
+        logger.info(f"Columns result: {type(columns_result)}, length: {len(columns_result) if columns_result else 'None'}")
+        columns = [row[0] for row in columns_result] if columns_result else []
+        logger.info(f"Columns: {columns}")
+        
+        # Debug logging
+        logger.info(f"Export data type: {type(data)}")
+        logger.info(f"Export data length: {len(data) if data else 'None'}")
+        logger.info(f"Export columns type: {type(columns)}")
+        logger.info(f"Export columns length: {len(columns) if columns else 'None'}")
+        
+        if not data:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No records found for importer '{importer_name}'"
+            )
+        
+        # Generate filename
+        if filename:
+            if not filename.endswith('.csv'):
+                filename += '.csv'
+        else:
+            # Sanitize importer name for filename
+            try:
+                logger.info(f"Sanitizing importer name: '{importer_name}', type: {type(importer_name)}")
+                importer_str = str(importer_name)
+                logger.info(f"Converted to string: '{importer_str}'")
+                safe_importer_name = "".join(c for c in importer_str if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                logger.info(f"Sanitized name: '{safe_importer_name}'")
+                safe_importer_name = safe_importer_name.replace(' ', '_')
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{safe_importer_name}_{timestamp}.csv"
+                logger.info(f"Final filename: '{filename}'")
+            except Exception as e:
+                logger.error(f"Error sanitizing importer name '{importer_name}': {e}")
+                logger.error(f"Importer name type: {type(importer_name)}")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"importer_export_{timestamp}.csv"
+        
+        # Create CSV file
+        csv_path = f"exports/{filename}"
+        os.makedirs("exports", exist_ok=True)
+        
+        try:
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(columns)
+                writer.writerows(data)
+            
+            logger.info(f"Exported {len(data)} records for importer '{importer_name}' to {filename}")
+        except Exception as csv_error:
+            logger.error(f"Error writing CSV file: {csv_error}")
+            logger.error(f"Data type: {type(data)}, Data length: {len(data) if data else 'None'}")
+            logger.error(f"Columns type: {type(columns)}, Columns length: {len(columns) if columns else 'None'}")
+            raise HTTPException(status_code=500, detail=f"Error writing CSV file: {str(csv_error)}")
+        
+        return FileResponse(
+            path=csv_path,
+            filename=filename,
+            media_type='text/csv'
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting importer data: {e}")
+        logger.error(f"Error type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.get("/health")
